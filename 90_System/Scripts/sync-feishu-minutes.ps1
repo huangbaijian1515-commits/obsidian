@@ -16,7 +16,8 @@ $ErrorActionPreference = "Stop"
 $vaultRoot = Get-VaultRoot
 $statePath = Join-Path $vaultRoot "90_System\State\feishu-sync-state.json"
 $logRoot = Join-Path $vaultRoot "90_System\Logs"
-New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
+$exportRoot = Join-Path $vaultRoot "10_Sources\Attachments\Feishu\Exports"
+New-Item -ItemType Directory -Force -Path $logRoot, $exportRoot | Out-Null
 
 $forbidden = @("edit", "update", "delete", "remove", "upload", "move", "comment", "write", "patch", "put")
 
@@ -101,7 +102,8 @@ function Join-CommandArguments {
 function Invoke-ReadOnlyCliJson {
     param(
         [string]$Executable,
-        [string[]]$CliArgs
+        [string[]]$CliArgs,
+        [string]$StandardInput = ""
     )
 
     Test-ReadOnlyCommand -Parts (@($Executable) + $CliArgs)
@@ -117,11 +119,16 @@ function Invoke-ReadOnlyCliJson {
     $psi.Arguments = "/d /c $commandLine"
     $psi.RedirectStandardOutput = $true
     $psi.RedirectStandardError = $true
+    $psi.RedirectStandardInput = -not [string]::IsNullOrWhiteSpace($StandardInput)
     $psi.UseShellExecute = $false
     $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
     $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
 
     $process = [System.Diagnostics.Process]::Start($psi)
+    if ($psi.RedirectStandardInput) {
+        $process.StandardInput.Write($StandardInput)
+        $process.StandardInput.Close()
+    }
     $stdout = $process.StandardOutput.ReadToEnd()
     $stderr = $process.StandardError.ReadToEnd()
     $process.WaitForExit()
@@ -204,17 +211,169 @@ function Invoke-FeishuMinuteGet {
         throw "$exe is not installed. Run 90_System/Scripts/feishu-probe.ps1 for setup hints."
     }
 
-    $paramsPath = Join-Path $env:TEMP "obsidian-feishu-get-$([guid]::NewGuid().ToString()).json"
-    @{ minute_token = $MinuteToken; user_id_type = "open_id" } | ConvertTo-Json -Compress | Set-Content -LiteralPath $paramsPath -Encoding UTF8
-    $args = @("minutes", "minutes", "get", "--as", "user", "--params", "@$paramsPath", "--format", "json")
+    $params = @{ minute_token = $MinuteToken; user_id_type = "open_id" } | ConvertTo-Json -Compress
+    $args = @("minutes", "minutes", "get", "--as", "user", "--params", "-", "--format", "json")
     Test-ReadOnlyCommand -Parts (@($exe) + $args)
     try {
-        return Invoke-ReadOnlyCliJson -Executable $exe -CliArgs $args
+        return Invoke-ReadOnlyCliJson -Executable $exe -CliArgs $args -StandardInput $params
     } catch {
-        Write-Host "Warning: Feishu minute detail fetch failed for $MinuteToken"
+        Write-Host "Warning: Feishu minute detail fetch failed for $MinuteToken. $($_.Exception.Message)"
         return $null
-    } finally {
-        Remove-Item -LiteralPath $paramsPath -ErrorAction SilentlyContinue
+    }
+}
+
+function Export-FeishuMinuteMarkdown {
+    param(
+        [string]$DocToken,
+        [string]$Title,
+        [string]$NoteDate,
+        [switch]$DryRun
+    )
+
+    if ([string]::IsNullOrWhiteSpace($DocToken)) {
+        return $null
+    }
+
+    $exe = "lark-cli.cmd"
+    $safeTitle = ConvertTo-SafeFileName -Text $Title
+    $baseName = "$NoteDate`_$safeTitle"
+    $outputDir = Join-Path $exportRoot $baseName
+    $relativeOutputDir = "10_Sources\Attachments\Feishu\Exports\$baseName"
+    $expectedPath = Join-Path $outputDir "$baseName.md"
+
+    if ($DryRun) {
+        return [pscustomobject]@{
+            path = $expectedPath
+            content = ""
+            dryRun = $true
+        }
+    }
+
+    New-Item -ItemType Directory -Force -Path $outputDir | Out-Null
+    $args = @("drive", "+export", "--as", "user", "--token", $DocToken, "--doc-type", "docx", "--file-extension", "markdown", "--file-name", $baseName, "--output-dir", $relativeOutputDir, "--overwrite")
+    Test-ReadOnlyCommand -Parts (@($exe) + $args)
+
+    $commandLine = "$exe $(Join-CommandArguments -CliArgs $args)"
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "cmd.exe"
+    $psi.Arguments = "/d /c $commandLine"
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+
+    $process = [System.Diagnostics.Process]::Start($psi)
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+
+    if ($process.ExitCode -ne 0) {
+        throw "Feishu minute markdown export failed for doc token $DocToken. $stderr $stdout"
+    }
+
+    $markdown = Get-ChildItem -LiteralPath $outputDir -Recurse -File -Filter "*.md" | Select-Object -First 1
+    if (-not $markdown) {
+        throw "Feishu minute markdown export completed but no markdown file was found in $outputDir. $stdout"
+    }
+
+    return [pscustomobject]@{
+        path = $markdown.FullName
+        content = (Get-Content -LiteralPath $markdown.FullName -Encoding UTF8 -Raw)
+        dryRun = $false
+    }
+}
+
+function Search-FeishuMinuteDocs {
+    param([string]$Query)
+
+    if ([string]::IsNullOrWhiteSpace($Query)) {
+        return @()
+    }
+
+    $exe = "lark-cli.cmd"
+    $queries = @("文字记录：$Query", $Query, "智能纪要：$Query")
+    $seen = @{}
+    $items = @()
+
+    foreach ($candidateQuery in $queries) {
+        $args = @("drive", "+search", "--query", $candidateQuery, "--as", "user", "--format", "json")
+        $result = Invoke-ReadOnlyCliJson -Executable $exe -CliArgs $args
+        $resultItems = @()
+        if ($null -ne $result.data.results) {
+            $resultItems = @($result.data.results)
+        } elseif ($null -ne $result.results) {
+            $resultItems = @($result.results)
+        }
+
+        $validItems = @($resultItems | Where-Object {
+            $_.entity_type -eq "DOC" -and
+            $null -ne $_.result_meta -and
+            $_.result_meta.doc_types -eq "DOCX" -and
+            -not [string]::IsNullOrWhiteSpace($_.result_meta.token)
+        })
+
+        foreach ($item in $validItems) {
+            $token = "$($item.result_meta.token)"
+            if (-not [string]::IsNullOrWhiteSpace($token) -and -not $seen.ContainsKey($token)) {
+                $seen[$token] = $true
+                $items += $item
+            }
+        }
+
+        if ($candidateQuery -like "文字记录：*" -and $validItems.Count -gt 0) {
+            break
+        }
+    }
+
+    return @($items)
+}
+
+function Get-PlainTitle {
+    param([string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ""
+    }
+    $decoded = [System.Net.WebUtility]::HtmlDecode($Text)
+    return ($decoded -replace "<[^>]+>", "").Trim()
+}
+
+function Select-FeishuMinuteDoc {
+    param(
+        [object[]]$Docs,
+        [string]$UpdatedAt
+    )
+
+    if ($Docs.Count -eq 0) {
+        return $null
+    }
+
+    $transcriptDocs = @($Docs | Where-Object { (Get-PlainTitle -Text "$($_.title_highlighted)") -like "*文字记录*" })
+    if ($transcriptDocs.Count -gt 0) {
+        $doc = @($transcriptDocs | Sort-Object @{ Expression = { [int64]($_.result_meta.update_time) }; Descending = $true } | Select-Object -First 1)[0]
+        return [pscustomobject]@{
+            token = "$($doc.result_meta.token)"
+            title = (Get-PlainTitle -Text "$($doc.title_highlighted)")
+            section = "Feishu Transcript"
+        }
+    }
+
+    $summaryDocs = @($Docs | Where-Object { (Get-PlainTitle -Text "$($_.title_highlighted)") -like "*智能纪要*" })
+    if ($summaryDocs.Count -gt 0) {
+        $doc = @($summaryDocs | Sort-Object @{ Expression = { [int64]($_.result_meta.update_time) }; Descending = $true } | Select-Object -First 1)[0]
+        return [pscustomobject]@{
+            token = "$($doc.result_meta.token)"
+            title = (Get-PlainTitle -Text "$($doc.title_highlighted)")
+            section = "Feishu Summary"
+        }
+    }
+
+    $fallback = @($Docs)[0]
+    return [pscustomobject]@{
+        token = "$($fallback.result_meta.token)"
+        title = (Get-PlainTitle -Text "$($fallback.title_highlighted)")
+        section = "Feishu Transcript"
     }
 }
 
@@ -353,6 +512,10 @@ foreach ($record in $records) {
     $summary = Get-PropertyValue -Object $record -Names @("summary", "abstract", "ai_summary")
     $transcript = Get-PropertyValue -Object $record -Names @("transcript", "transcript_text", "content", "text", "minutes", "plain_text", "paragraphs")
     $actions = Get-PropertyValue -Object $record -Names @("action_items", "todo", "tasks")
+    $noteId = Get-PropertyValue -Object $record -Names @("note_id", "doc_token", "document_token")
+    $selectedDocToken = ""
+    $selectedDocTitle = ""
+    $selectedDocSection = "Feishu Transcript"
 
     $bodyParts = @()
     if (-not [string]::IsNullOrWhiteSpace($summary)) {
@@ -375,6 +538,30 @@ foreach ($record in $records) {
         $bodyParts += ""
         $bodyParts += "$transcript"
     } else {
+        $docs = Search-FeishuMinuteDocs -Query $title
+        $selectedDoc = Select-FeishuMinuteDoc -Docs $docs -UpdatedAt "$updatedAt"
+        if ($null -ne $selectedDoc) {
+            $selectedDocToken = $selectedDoc.token
+            $selectedDocTitle = $selectedDoc.title
+            $selectedDocSection = $selectedDoc.section
+        }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($transcript) -and -not [string]::IsNullOrWhiteSpace($selectedDocToken)) {
+        $export = Export-FeishuMinuteMarkdown -DocToken $selectedDocToken -Title $title -NoteDate $noteDate -DryRun:$DryRun
+        $transcriptPath = $export.path
+        if ($DryRun) {
+            $bodyParts += "Feishu DOCX is available and would be exported as Markdown."
+        } else {
+            $bodyParts += "## $selectedDocSection"
+            $bodyParts += ""
+            $bodyParts += "Source DOCX: $selectedDocTitle"
+            $bodyParts += ""
+            $bodyParts += $export.content
+        }
+    } elseif (-not [string]::IsNullOrWhiteSpace($transcript)) {
+        # Already handled above.
+    } else {
         $needsTranscription = $true
         $untranscribed++
         $bodyParts += "No Feishu transcript or AI-readable transcript field was available. This stage does not download recordings or run local transcription."
@@ -395,7 +582,11 @@ foreach ($record in $records) {
             Write-Host "[dry-run] Would create placeholder: $noteDate`_$safeTitle ($id)"
             $placeholders++
         } else {
-            Write-Host "[dry-run] Would import transcribed minute: $noteDate`_$safeTitle ($id)"
+            if (-not [string]::IsNullOrWhiteSpace($selectedDocToken)) {
+                Write-Host "[dry-run] Would import transcribed minute: $noteDate`_$safeTitle ($id) via DOCX $selectedDocToken [$selectedDocSection] $selectedDocTitle"
+            } else {
+                Write-Host "[dry-run] Would import transcribed minute: $noteDate`_$safeTitle ($id)"
+            }
         }
         $created++
         continue
@@ -410,6 +601,8 @@ foreach ($record in $records) {
         status = $status
         needsTranscription = $needsTranscription
         mediaPath = ""
+        docToken = $selectedDocToken
+        transcriptPath = $transcriptPath
     })
     $created++
 }

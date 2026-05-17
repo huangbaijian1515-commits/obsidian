@@ -143,7 +143,7 @@ Sync from a local JSON export:
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -InputJson "G:\path\to\feishu-minutes.json" -DaysBack 7
 ```
 
-The default sync path uses `lark-cli.cmd minutes +search --as user` and `lark-cli.cmd minutes minutes get --as user`. It imports already-transcribed content first. It does not download recordings or run local transcription in the current stage.
+The default sync path uses `lark-cli.cmd minutes +search --as user`, `lark-cli.cmd minutes minutes get --as user`, read-only `lark-cli.cmd drive +search`, and read-only `lark-cli.cmd drive +export`. It searches for related DOCX documents and prioritizes `文字记录` over `智能纪要`. It does not download recordings or run local transcription in the current stage.
 
 If sync reports `need_user_authorization`, re-run `lark-cli auth login --recommend` and approve the minutes read scopes, especially `minutes:minutes.search:read`.
 

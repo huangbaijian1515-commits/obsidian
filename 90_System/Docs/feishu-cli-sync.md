@@ -37,6 +37,21 @@ lark-cli auth login --recommend
 
 Current stage: import already-transcribed Feishu content first. Do not install `ffmpeg` or `faster-whisper` yet unless you decide to enable local transcription later.
 
+Feishu `minutes get` returns basic minute metadata but not the transcript body directly. The sync script searches Drive by the minute title, selects a related DOCX, and exports it as read-only Markdown through:
+
+```powershell
+lark-cli.cmd drive +search --query <minute-title> --as user --format json
+lark-cli.cmd drive +export --as user --token <docx-token> --doc-type docx --file-extension markdown
+```
+
+Selection priority:
+
+1. DOCX title containing `文字记录`
+2. DOCX title containing `智能纪要`
+3. Most recently updated matching DOCX
+
+The exported Markdown is saved under `10_Sources/Attachments/Feishu/Exports/` and copied into the Obsidian source note as `Feishu Transcript` or `Feishu Summary`.
+
 The Feishu app/user must approve these read scopes when prompted:
 
 - `minutes:minutes.search:read`

@@ -76,6 +76,9 @@ foreach ($file in $files) {
     if ([System.IO.Path]::GetFileName($file.FullName) -eq "README.md") {
         continue
     }
+    if ($relative.StartsWith("10_Sources/Attachments/")) {
+        continue
+    }
     if ($relative.StartsWith("90_System/Templates/")) {
         continue
     }
