@@ -5,6 +5,8 @@ param(
 
     [string]$ConfigFile = ".\90_System\Config\feishu-sync.json",
 
+    [switch]$CreatePlaceholderForUntranscribed,
+
     [switch]$DryRun
 )
 
@@ -13,9 +15,8 @@ $ErrorActionPreference = "Stop"
 
 $vaultRoot = Get-VaultRoot
 $statePath = Join-Path $vaultRoot "90_System\State\feishu-sync-state.json"
-$attachmentRoot = Join-Path $vaultRoot "10_Sources\Attachments\Feishu"
 $logRoot = Join-Path $vaultRoot "90_System\Logs"
-New-Item -ItemType Directory -Force -Path $attachmentRoot, $logRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
 
 trap {
     $errorLogPath = Join-Path $logRoot "feishu-sync-error-$(Get-Date -Format 'yyyy-MM-dd-HHmmss').log"
@@ -24,7 +25,7 @@ trap {
     exit 1
 }
 
-$forbidden = @("edit", "update", "delete", "remove", "upload", "move", "comment", "write", "patch", "post", "put")
+$forbidden = @("edit", "update", "delete", "remove", "upload", "move", "comment", "write", "patch", "put")
 
 function Read-State {
     param([string]$Path)
@@ -102,6 +103,56 @@ function Invoke-ConfiguredListCommand {
     return ($output -join "`n")
 }
 
+function Invoke-FeishuMinutesSearch {
+    param([int]$DaysBack)
+
+    $exe = "lark-cli.cmd"
+    $command = Get-Command $exe -ErrorAction SilentlyContinue
+    if (-not $command) {
+        throw "$exe is not installed. Run 90_System/Scripts/feishu-probe.ps1 for setup hints."
+    }
+
+    $start = (Get-Date).AddDays(-1 * $DaysBack).ToString("yyyy-MM-dd")
+    $end = (Get-Date).ToString("yyyy-MM-dd")
+    $args = @("minutes", "+search", "--as", "user", "--start", $start, "--end", $end, "--page-size", "30", "--format", "json")
+    Test-ReadOnlyCommand -Parts (@($exe) + $args)
+
+    $output = & $exe @args
+    if ($LASTEXITCODE -ne 0) {
+        throw "Feishu minutes search failed."
+    }
+    return ($output -join "`n")
+}
+
+function Invoke-FeishuMinuteGet {
+    param([string]$MinuteToken)
+
+    if ([string]::IsNullOrWhiteSpace($MinuteToken)) {
+        return $null
+    }
+
+    $exe = "lark-cli.cmd"
+    $command = Get-Command $exe -ErrorAction SilentlyContinue
+    if (-not $command) {
+        throw "$exe is not installed. Run 90_System/Scripts/feishu-probe.ps1 for setup hints."
+    }
+
+    $params = @{ minute_token = $MinuteToken; user_id_type = "open_id" } | ConvertTo-Json -Compress
+    $args = @("minutes", "minutes", "get", "--as", "user", "--params", $params, "--format", "json")
+    Test-ReadOnlyCommand -Parts (@($exe) + $args)
+
+    $output = & $exe @args
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Warning: Feishu minute detail fetch failed for $MinuteToken"
+        return $null
+    }
+    $text = $output -join "`n"
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        return $null
+    }
+    return ($text | ConvertFrom-Json)
+}
+
 function ConvertTo-Array {
     param([object]$Data)
 
@@ -133,12 +184,40 @@ function Add-OrUpdateItem {
     }
 }
 
+function Merge-RecordWithDetail {
+    param(
+        [object]$Record,
+        [object]$Detail
+    )
+
+    if ($null -eq $Detail) {
+        return $Record
+    }
+
+    $minute = $Detail
+    if ($null -ne $Detail.minute) {
+        $minute = $Detail.minute
+    }
+
+    foreach ($property in $minute.PSObject.Properties) {
+        if ($null -eq $Record.PSObject.Properties[$property.Name]) {
+            $Record | Add-Member -NotePropertyName $property.Name -NotePropertyValue $property.Value
+        } elseif ([string]::IsNullOrWhiteSpace("$($Record.$($property.Name))")) {
+            $Record.$($property.Name) = $property.Value
+        }
+    }
+
+    return $Record
+}
+
 $state = Read-State -Path $statePath
 $jsonText = ""
 if (-not [string]::IsNullOrWhiteSpace($InputJson)) {
     $jsonText = Get-Content -LiteralPath $InputJson -Raw
-} else {
+} elseif (Test-Path -LiteralPath (Join-Path $vaultRoot $ConfigFile)) {
     $jsonText = Invoke-ConfiguredListCommand -Path (Join-Path $vaultRoot $ConfigFile)
+} else {
+    $jsonText = Invoke-FeishuMinutesSearch -DaysBack $DaysBack
 }
 
 $data = $jsonText | ConvertFrom-Json
@@ -146,11 +225,18 @@ $records = ConvertTo-Array -Data $data
 $cutoff = (Get-Date).AddDays(-1 * $DaysBack)
 $created = 0
 $skipped = 0
+$placeholders = 0
+$untranscribed = 0
 
 foreach ($record in $records) {
     $id = Get-PropertyValue -Object $record -Names @("id", "token", "minute_token", "meeting_id", "object_token")
     if ([string]::IsNullOrWhiteSpace($id)) {
         $id = [guid]::NewGuid().ToString()
+    }
+
+    if ([string]::IsNullOrWhiteSpace($InputJson)) {
+        $detail = Invoke-FeishuMinuteGet -MinuteToken $id
+        $record = Merge-RecordWithDetail -Record $record -Detail $detail
     }
 
     $title = Get-PropertyValue -Object $record -Names @("title", "name", "topic", "meeting_topic")
@@ -175,10 +261,8 @@ foreach ($record in $records) {
 
     $url = Get-PropertyValue -Object $record -Names @("url", "share_url", "link")
     $summary = Get-PropertyValue -Object $record -Names @("summary", "abstract", "ai_summary")
-    $transcript = Get-PropertyValue -Object $record -Names @("transcript", "transcript_text", "content", "text", "minutes")
+    $transcript = Get-PropertyValue -Object $record -Names @("transcript", "transcript_text", "content", "text", "minutes", "plain_text", "paragraphs")
     $actions = Get-PropertyValue -Object $record -Names @("action_items", "todo", "tasks")
-    $mediaPath = Get-PropertyValue -Object $record -Names @("media_path", "recording_path", "audio_path", "video_path")
-    $mediaUrl = Get-PropertyValue -Object $record -Names @("media_url", "recording_url", "download_url")
 
     $bodyParts = @()
     if (-not [string]::IsNullOrWhiteSpace($summary)) {
@@ -200,31 +284,29 @@ foreach ($record in $records) {
         $bodyParts += "## Feishu Transcript"
         $bodyParts += ""
         $bodyParts += "$transcript"
-    } elseif (-not [string]::IsNullOrWhiteSpace($mediaPath) -and (Test-Path -LiteralPath $mediaPath)) {
-        $safeTitle = ConvertTo-SafeFileName -Text $title
-        $transcriptPath = Join-Path $attachmentRoot "$noteDate`_$safeTitle.transcript.md"
-        if (-not $DryRun) {
-            & "$PSScriptRoot\transcribe-local.ps1" -MediaFile $mediaPath -OutputFile $transcriptPath
-        }
-        $bodyParts += "## Local Transcript"
-        $bodyParts += ""
-        $bodyParts += "Transcript path: $transcriptPath"
-    } elseif (-not [string]::IsNullOrWhiteSpace($mediaUrl)) {
-        $needsTranscription = $true
-        $bodyParts += "Recording URL detected but not downloaded automatically because authenticated Feishu media downloads vary by tenant."
-        $bodyParts += ""
-        $bodyParts += "Recording URL: $mediaUrl"
     } else {
         $needsTranscription = $true
-        $bodyParts += "No Feishu transcript or local recording was available. Add media and run transcribe-local.ps1."
+        $untranscribed++
+        $bodyParts += "No Feishu transcript or AI-readable transcript field was available. This stage does not download recordings or run local transcription."
     }
 
     $status = if ($needsTranscription) { "captured" } else { "transcribed" }
     $body = $bodyParts -join "`n"
 
+    if ($needsTranscription -and -not $CreatePlaceholderForUntranscribed) {
+        Write-Host "Skipping untranscribed minute: $noteDate`_$(ConvertTo-SafeFileName -Text $title) ($id)"
+        $skipped++
+        continue
+    }
+
     if ($DryRun) {
         $safeTitle = ConvertTo-SafeFileName -Text $title
-        Write-Host "[dry-run] Would import: $noteDate`_$safeTitle ($id)"
+        if ($needsTranscription) {
+            Write-Host "[dry-run] Would create placeholder: $noteDate`_$safeTitle ($id)"
+            $placeholders++
+        } else {
+            Write-Host "[dry-run] Would import transcribed minute: $noteDate`_$safeTitle ($id)"
+        }
         $created++
         continue
     }
@@ -237,7 +319,7 @@ foreach ($record in $records) {
         notePath = $notePath
         status = $status
         needsTranscription = $needsTranscription
-        mediaPath = $mediaPath
+        mediaPath = ""
     })
     $created++
 }
@@ -247,6 +329,6 @@ if (-not $DryRun) {
 }
 
 $logPath = Join-Path $logRoot "feishu-sync-$(Get-Date -Format 'yyyy-MM-dd-HHmmss').log"
-"created=$created skipped=$skipped dryRun=$DryRun" | Set-Content -LiteralPath $logPath -Encoding UTF8
-Write-Host "Feishu sync finished. created=$created skipped=$skipped dryRun=$DryRun"
+"created=$created skipped=$skipped placeholders=$placeholders untranscribed=$untranscribed dryRun=$DryRun" | Set-Content -LiteralPath $logPath -Encoding UTF8
+Write-Host "Feishu sync finished. created=$created skipped=$skipped placeholders=$placeholders untranscribed=$untranscribed dryRun=$DryRun"
 Write-Host "Log: $logPath"

@@ -75,6 +75,7 @@ $result = [ordered]@{
     safety = [ordered]@{
         readOnly = $true
         forbiddenOperations = @("edit", "update", "delete", "remove", "upload", "move", "comment", "write")
+        requiredReadScopes = @("minutes:minutes.search:read", "minutes:minutes:readonly", "minutes:minutes.basic:read")
     }
 }
 
@@ -88,6 +89,9 @@ if ($Json) {
     Write-Host "faster_whisper module installed: $fasterWhisper"
     if (-not $lark.installed) {
         Write-Host "Install Feishu CLI, then run: lark-cli auth login --recommend"
+    } else {
+        Write-Host "Required read scopes include: minutes:minutes.search:read, minutes:minutes:readonly, minutes:minutes.basic:read"
+        Write-Host "If sync reports need_user_authorization, re-run lark-cli auth login --recommend and approve the minutes read scopes."
     }
     if ($lark.installed) {
         Write-Host ""

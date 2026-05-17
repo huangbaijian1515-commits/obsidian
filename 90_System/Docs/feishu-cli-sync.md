@@ -8,7 +8,6 @@ Allowed:
 
 - list readable Feishu minutes or meeting records
 - read metadata, transcript, AI summary, and action items
-- download recording files that your account can access
 - write local Obsidian notes and local state files
 
 Forbidden unless explicitly approved before execution:
@@ -36,13 +35,48 @@ If needed, install and authenticate Feishu CLI:
 lark-cli auth login --recommend
 ```
 
-For local transcription, install:
+Current stage: import already-transcribed Feishu content first. Do not install `ffmpeg` or `faster-whisper` yet unless you decide to enable local transcription later.
+
+The Feishu app/user must approve these read scopes when prompted:
+
+- `minutes:minutes.search:read`
+- `minutes:minutes:readonly`
+- `minutes:minutes.basic:read`
+
+If you see `need_user_authorization`, re-run:
 
 ```powershell
-pip install faster-whisper
+lark-cli auth login --recommend
 ```
 
-Install `ffmpeg` separately and make sure it is available on `PATH`.
+Then approve the minutes read scopes in the browser.
+
+## Sync From Feishu CLI
+
+Run a dry run first:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7 -DryRun
+```
+
+Then run the sync:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7
+```
+
+The script uses read-only commands:
+
+```powershell
+lark-cli.cmd minutes +search --as user --start <date> --end <date> --page-size 30 --format json
+lark-cli.cmd minutes minutes get --as user --params '{"minute_token":"...","user_id_type":"open_id"}' --format json
+```
+
+Untranscribed minutes are skipped by default. To create placeholder notes for them:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7 -CreatePlaceholderForUntranscribed
+```
 
 ## Sync From JSON
 
@@ -56,8 +90,6 @@ Common fields:
 - `updated_at`, `update_time`, `modified_at`, or `modified_time`
 - `summary`, `abstract`, or `ai_summary`
 - `transcript`, `transcript_text`, `content`, `text`, or `minutes`
-- `media_path`, `recording_path`, `audio_path`, or `video_path`
-- `media_url`, `recording_url`, or `download_url`
 
 Run:
 
@@ -67,7 +99,7 @@ powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes
 
 ## Daily Sync
 
-After `90_System/Config/feishu-sync.json` contains a confirmed read-only list/export command:
+After the dry-run output looks right:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\install-feishu-daily-task.ps1

@@ -1,11 +1,11 @@
 {
   "readOnly": true,
   "minutesListCommand": {
-    "executable": "lark-cli",
-    "args": ["minutes", "list", "--format", "json"]
+    "executable": "lark-cli.cmd",
+    "args": ["minutes", "+search", "--as", "user", "--start", "2026-05-17", "--end", "2026-05-17", "--page-size", "30", "--format", "json"]
   },
   "notes": [
-    "This is a conservative placeholder. Run feishu-probe.ps1 first and adjust the command only to a read-only list/export command supported by your tenant.",
-    "Do not put edit, update, delete, upload, move, comment, or write commands in this file."
+    "The default sync script can generate dates automatically without this config. Use this file only for explicit read-only experiments.",
+    "Do not put +upload, edit, update, delete, upload, move, comment, write, patch, put, or other Feishu write commands in this file."
   ]
 }

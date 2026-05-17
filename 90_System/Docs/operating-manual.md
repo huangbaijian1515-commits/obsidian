@@ -143,7 +143,15 @@ Sync from a local JSON export:
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -InputJson "G:\path\to\feishu-minutes.json" -DaysBack 7
 ```
 
-After `feishu-probe.ps1` confirms the exact read-only CLI command for your tenant, copy `90_System/Config/feishu-sync.example.json` to `90_System/Config/feishu-sync.json` and update only the list/export command. Do not add edit, update, delete, upload, move, comment, write, patch, post, or put commands.
+The default sync path uses `lark-cli.cmd minutes +search --as user` and `lark-cli.cmd minutes minutes get --as user`. It imports already-transcribed content first. It does not download recordings or run local transcription in the current stage.
+
+If sync reports `need_user_authorization`, re-run `lark-cli auth login --recommend` and approve the minutes read scopes, especially `minutes:minutes.search:read`.
+
+Dry run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7 -DryRun
+```
 
 Install daily sync at 23:30:
 

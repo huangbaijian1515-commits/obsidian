@@ -32,7 +32,8 @@ powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\import-feishu-expor
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\feishu-probe.ps1
 
 # Feishu minutes sync from a JSON export or configured read-only CLI command
-powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -InputJson "G:\path\to\feishu-minutes.json" -DaysBack 7
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7 -DryRun
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7
 ```
 
 ## Weekly Compile
