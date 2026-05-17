@@ -57,6 +57,14 @@ Save:
 
 NotebookLM may be used for public videos, but the final source note belongs in this vault.
 
+Use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\import-youtube.ps1 -Url "https://www.youtube.com/watch?v=..."
+```
+
+If `yt-dlp` is installed, the script captures basic metadata. If not, it creates a shell source note for manual transcript paste.
+
 ### Feishu Minutes
 
 Export or copy:
@@ -69,6 +77,14 @@ Export or copy:
 - action items
 
 For work-sensitive meetings, keep `privacy: work` or `privacy: sensitive` and do not send to cloud tools.
+
+Use:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\import-feishu-export.ps1 -InputFile "G:\path\to\meeting-export.txt" -Title "Meeting title"
+```
+
+This v2 path is export-first rather than API-first. Feishu API sync should be added only after the app ID, app secret, tenant permission model, and privacy boundary are confirmed.
 
 ### Android Capture
 
@@ -88,3 +104,19 @@ Suggested commit styles:
 
 Avoid committing sensitive work material to private GitHub unless it is approved for that storage boundary.
 
+## V2 Compile Draft
+
+Run:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\compile-extraction-draft.ps1 -Status all
+```
+
+The script creates `00_Inbox/Extraction_Drafts/extraction-draft-*.md`.
+
+Use the generated draft as a working surface with Codex:
+
+1. Ask Codex to fill candidate viewpoints, judgments, facts, and data.
+2. Review the candidates manually.
+3. Promote approved items into `20_Query/`.
+4. Re-run lint after promotion.

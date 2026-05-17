@@ -16,6 +16,19 @@ Obsidian is the source of truth. Codex acts as a local compiler that reads sourc
 3. Preserve full text, transcript, summary, and URL when available.
 4. Mark source status as `captured`, `transcribed`, `extracted`, `reviewed`, or `archived`.
 
+Useful v2 commands:
+
+```powershell
+# Generic web/manual source
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\import-source.ps1 -Title "Source title" -SourceType web -Url "https://example.com"
+
+# YouTube source shell note
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\import-youtube.ps1 -Url "https://www.youtube.com/watch?v=..."
+
+# Feishu minutes export from a local txt/md file
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\import-feishu-export.ps1 -InputFile "G:\path\to\meeting-export.txt" -Title "Meeting title"
+```
+
 ## Weekly Compile
 
 1. Ask Codex to scan `00_Inbox/` and `10_Sources/`.
@@ -23,6 +36,12 @@ Obsidian is the source of truth. Codex acts as a local compiler that reads sourc
 3. Review candidates manually.
 4. Promote durable ideas into `20_Query/` using the query template.
 5. Let Codex suggest links, topic membership, duplicates, and contradictions.
+
+Generate a local extraction draft:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\compile-extraction-draft.ps1 -Status all
+```
 
 ## Topic Reports
 
