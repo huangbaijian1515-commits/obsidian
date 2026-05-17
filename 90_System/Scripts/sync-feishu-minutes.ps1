@@ -20,6 +20,9 @@ $exportRoot = Join-Path $vaultRoot "10_Sources\Attachments\Feishu\Exports"
 New-Item -ItemType Directory -Force -Path $logRoot, $exportRoot | Out-Null
 
 $forbidden = @("edit", "update", "delete", "remove", "upload", "move", "comment", "write", "patch", "put")
+$textRecordLabel = -join @([char]0x6587, [char]0x5B57, [char]0x8BB0, [char]0x5F55)
+$smartSummaryLabel = -join @([char]0x667A, [char]0x80FD, [char]0x7EAA, [char]0x8981)
+$fullWidthColon = [char]0xFF1A
 
 function Read-State {
     param([string]$Path)
@@ -99,6 +102,41 @@ function Join-CommandArguments {
     return ($quoted -join " ")
 }
 
+function Invoke-NativeCliText {
+    param(
+        [string]$Executable,
+        [string[]]$CliArgs
+    )
+
+    Test-ReadOnlyCommand -Parts (@($Executable) + $CliArgs)
+
+    $command = Get-Command $Executable -ErrorAction SilentlyContinue
+    if (-not $command) {
+        throw "$Executable is not installed. Run 90_System/Scripts/feishu-probe.ps1 for setup hints."
+    }
+
+    $previousOutputEncoding = [Console]::OutputEncoding
+    $previousInputEncoding = [Console]::InputEncoding
+    $previousErrorActionPreference = $ErrorActionPreference
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    [Console]::InputEncoding = [System.Text.Encoding]::UTF8
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = & $Executable @CliArgs 2>&1
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+        [Console]::OutputEncoding = $previousOutputEncoding
+        [Console]::InputEncoding = $previousInputEncoding
+    }
+
+    $text = ($output | Out-String).Trim()
+    if ($exitCode -ne 0) {
+        throw "Feishu CLI command failed: $text"
+    }
+    return $text
+}
+
 function Invoke-ReadOnlyCliJson {
     param(
         [string]$Executable,
@@ -114,30 +152,9 @@ function Invoke-ReadOnlyCliJson {
     }
 
     $commandLine = "$Executable $(Join-CommandArguments -CliArgs $CliArgs)"
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = "cmd.exe"
-    $psi.Arguments = "/d /c $commandLine"
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.RedirectStandardInput = -not [string]::IsNullOrWhiteSpace($StandardInput)
-    $psi.UseShellExecute = $false
-    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
-
-    $process = [System.Diagnostics.Process]::Start($psi)
-    if ($psi.RedirectStandardInput) {
-        $process.StandardInput.Write($StandardInput)
-        $process.StandardInput.Close()
-    }
-    $stdout = $process.StandardOutput.ReadToEnd()
-    $stderr = $process.StandardError.ReadToEnd()
-    $process.WaitForExit()
-
-    if ($process.ExitCode -ne 0) {
-        throw "Feishu CLI command failed: $stderr $stdout"
-    }
+    $stdout = Invoke-NativeCliText -Executable $Executable -CliArgs $CliArgs
     if ([string]::IsNullOrWhiteSpace($stdout)) {
-        throw "Feishu CLI returned empty JSON output. $stderr"
+        throw "Feishu CLI returned empty JSON output."
     }
 
     try {
@@ -211,11 +228,10 @@ function Invoke-FeishuMinuteGet {
         throw "$exe is not installed. Run 90_System/Scripts/feishu-probe.ps1 for setup hints."
     }
 
-    $params = @{ minute_token = $MinuteToken; user_id_type = "open_id" } | ConvertTo-Json -Compress
-    $args = @("minutes", "minutes", "get", "--as", "user", "--params", "-", "--format", "json")
+    $args = @("api", "GET", "/open-apis/minutes/v1/minutes/$MinuteToken", "--as", "user", "--format", "json")
     Test-ReadOnlyCommand -Parts (@($exe) + $args)
     try {
-        return Invoke-ReadOnlyCliJson -Executable $exe -CliArgs $args -StandardInput $params
+        return Invoke-ReadOnlyCliJson -Executable $exe -CliArgs $args
     } catch {
         Write-Host "Warning: Feishu minute detail fetch failed for $MinuteToken. $($_.Exception.Message)"
         return $null
@@ -253,24 +269,7 @@ function Export-FeishuMinuteMarkdown {
     $args = @("drive", "+export", "--as", "user", "--token", $DocToken, "--doc-type", "docx", "--file-extension", "markdown", "--file-name", $baseName, "--output-dir", $relativeOutputDir, "--overwrite")
     Test-ReadOnlyCommand -Parts (@($exe) + $args)
 
-    $commandLine = "$exe $(Join-CommandArguments -CliArgs $args)"
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = "cmd.exe"
-    $psi.Arguments = "/d /c $commandLine"
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError = $true
-    $psi.UseShellExecute = $false
-    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
-    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
-
-    $process = [System.Diagnostics.Process]::Start($psi)
-    $stdout = $process.StandardOutput.ReadToEnd()
-    $stderr = $process.StandardError.ReadToEnd()
-    $process.WaitForExit()
-
-    if ($process.ExitCode -ne 0) {
-        throw "Feishu minute markdown export failed for doc token $DocToken. $stderr $stdout"
-    }
+    $stdout = Invoke-NativeCliText -Executable $exe -CliArgs $args
 
     $markdown = Get-ChildItem -LiteralPath $outputDir -Recurse -File -Filter "*.md" | Select-Object -First 1
     if (-not $markdown) {
@@ -292,7 +291,7 @@ function Search-FeishuMinuteDocs {
     }
 
     $exe = "lark-cli.cmd"
-    $queries = @("文字记录：$Query", $Query, "智能纪要：$Query")
+    $queries = @("$textRecordLabel$fullWidthColon$Query", $Query, "$smartSummaryLabel$fullWidthColon$Query")
     $seen = @{}
     $items = @()
 
@@ -321,7 +320,7 @@ function Search-FeishuMinuteDocs {
             }
         }
 
-        if ($candidateQuery -like "文字记录：*" -and $validItems.Count -gt 0) {
+        if ($candidateQuery -like "$textRecordLabel$fullWidthColon*" -and $validItems.Count -gt 0) {
             break
         }
     }
@@ -349,23 +348,25 @@ function Select-FeishuMinuteDoc {
         return $null
     }
 
-    $transcriptDocs = @($Docs | Where-Object { (Get-PlainTitle -Text "$($_.title_highlighted)") -like "*文字记录*" })
+    $transcriptDocs = @($Docs | Where-Object { (Get-PlainTitle -Text "$($_.title_highlighted)") -like ("*{0}*" -f $textRecordLabel) })
     if ($transcriptDocs.Count -gt 0) {
         $doc = @($transcriptDocs | Sort-Object @{ Expression = { [int64]($_.result_meta.update_time) }; Descending = $true } | Select-Object -First 1)[0]
         return [pscustomobject]@{
             token = "$($doc.result_meta.token)"
             title = (Get-PlainTitle -Text "$($doc.title_highlighted)")
             section = "Feishu Transcript"
+            kind = "transcript"
         }
     }
 
-    $summaryDocs = @($Docs | Where-Object { (Get-PlainTitle -Text "$($_.title_highlighted)") -like "*智能纪要*" })
+    $summaryDocs = @($Docs | Where-Object { (Get-PlainTitle -Text "$($_.title_highlighted)") -like ("*{0}*" -f $smartSummaryLabel) })
     if ($summaryDocs.Count -gt 0) {
         $doc = @($summaryDocs | Sort-Object @{ Expression = { [int64]($_.result_meta.update_time) }; Descending = $true } | Select-Object -First 1)[0]
         return [pscustomobject]@{
             token = "$($doc.result_meta.token)"
             title = (Get-PlainTitle -Text "$($doc.title_highlighted)")
             section = "Feishu Summary"
+            kind = "summary"
         }
     }
 
@@ -373,7 +374,8 @@ function Select-FeishuMinuteDoc {
     return [pscustomobject]@{
         token = "$($fallback.result_meta.token)"
         title = (Get-PlainTitle -Text "$($fallback.title_highlighted)")
-        section = "Feishu Transcript"
+        section = "Feishu Related Document"
+        kind = "unknown_doc"
     }
 }
 
@@ -516,6 +518,8 @@ foreach ($record in $records) {
     $selectedDocToken = ""
     $selectedDocTitle = ""
     $selectedDocSection = "Feishu Transcript"
+    $selectedDocKind = ""
+    $transcriptUnavailableReason = ""
 
     $bodyParts = @()
     if (-not [string]::IsNullOrWhiteSpace($summary)) {
@@ -544,14 +548,24 @@ foreach ($record in $records) {
             $selectedDocToken = $selectedDoc.token
             $selectedDocTitle = $selectedDoc.title
             $selectedDocSection = $selectedDoc.section
+            $selectedDocKind = $selectedDoc.kind
         }
     }
 
-    if ([string]::IsNullOrWhiteSpace($transcript) -and -not [string]::IsNullOrWhiteSpace($selectedDocToken)) {
+    if ([string]::IsNullOrWhiteSpace($transcript) -and -not [string]::IsNullOrWhiteSpace($selectedDocToken) -and $selectedDocKind -in @("transcript", "summary")) {
         $export = Export-FeishuMinuteMarkdown -DocToken $selectedDocToken -Title $title -NoteDate $noteDate -DryRun:$DryRun
         $transcriptPath = $export.path
+        if ($selectedDocKind -eq "summary") {
+            $needsTranscription = $true
+            $transcriptUnavailableReason = "no_text_record_docx_found"
+            $untranscribed++
+        }
         if ($DryRun) {
-            $bodyParts += "Feishu DOCX is available and would be exported as Markdown."
+            if ($selectedDocKind -eq "summary") {
+                $bodyParts += "Feishu summary DOCX is available and would be exported as Markdown. No text record DOCX was found."
+            } else {
+                $bodyParts += "Feishu text record DOCX is available and would be exported as Markdown."
+            }
         } else {
             $bodyParts += "## $selectedDocSection"
             $bodyParts += ""
@@ -563,14 +577,19 @@ foreach ($record in $records) {
         # Already handled above.
     } else {
         $needsTranscription = $true
+        if ($selectedDocKind -eq "unknown_doc") {
+            $transcriptUnavailableReason = "no_text_record_or_summary_docx_found"
+        } else {
+            $transcriptUnavailableReason = "no_related_docx_found"
+        }
         $untranscribed++
         $bodyParts += "No Feishu transcript or AI-readable transcript field was available. This stage does not download recordings or run local transcription."
     }
 
-    $status = if ($needsTranscription) { "captured" } else { "transcribed" }
+    $status = if ($selectedDocKind -eq "summary") { "summarized" } elseif ($needsTranscription) { "captured" } else { "transcribed" }
     $body = $bodyParts -join "`n"
 
-    if ($needsTranscription -and -not $CreatePlaceholderForUntranscribed) {
+    if ($needsTranscription -and $selectedDocKind -ne "summary" -and -not $CreatePlaceholderForUntranscribed) {
         Write-Host "Skipping untranscribed minute: $noteDate`_$(ConvertTo-SafeFileName -Text $title) ($id)"
         $skipped++
         continue
@@ -579,8 +598,12 @@ foreach ($record in $records) {
     if ($DryRun) {
         $safeTitle = ConvertTo-SafeFileName -Text $title
         if ($needsTranscription) {
-            Write-Host "[dry-run] Would create placeholder: $noteDate`_$safeTitle ($id)"
-            $placeholders++
+            if ($selectedDocKind -eq "summary") {
+                Write-Host "[dry-run] Would import summarized minute: $noteDate`_$safeTitle ($id) via DOCX $selectedDocToken [$selectedDocSection] $selectedDocTitle; needs_transcription=true"
+            } else {
+                Write-Host "[dry-run] Would create placeholder: $noteDate`_$safeTitle ($id)"
+                $placeholders++
+            }
         } else {
             if (-not [string]::IsNullOrWhiteSpace($selectedDocToken)) {
                 Write-Host "[dry-run] Would import transcribed minute: $noteDate`_$safeTitle ($id) via DOCX $selectedDocToken [$selectedDocSection] $selectedDocTitle"
@@ -592,7 +615,7 @@ foreach ($record in $records) {
         continue
     }
 
-    $notePath = New-FeishuSourceNote -VaultRoot $vaultRoot -Title $title -SourceDate $sourceDate -FeishuId $id -FeishuUrl $url -UpdatedAt "$updatedAt" -Body $body -TranscriptPath $transcriptPath -NeedsTranscription $needsTranscription -Status $status
+    $notePath = New-FeishuSourceNote -VaultRoot $vaultRoot -Title $title -SourceDate $sourceDate -FeishuId $id -FeishuUrl $url -UpdatedAt "$updatedAt" -Body $body -TranscriptPath $transcriptPath -NeedsTranscription $needsTranscription -Status $status -TranscriptUnavailableReason $transcriptUnavailableReason
 
     Add-OrUpdateItem -ItemsObject $state.items -Key $id -Value ([pscustomobject]@{
         title = $title
@@ -602,7 +625,9 @@ foreach ($record in $records) {
         needsTranscription = $needsTranscription
         mediaPath = ""
         docToken = $selectedDocToken
+        docKind = $selectedDocKind
         transcriptPath = $transcriptPath
+        transcriptUnavailableReason = $transcriptUnavailableReason
     })
     $created++
 }

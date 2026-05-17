@@ -205,7 +205,8 @@ function New-FeishuSourceNote {
         [string]$Body = "",
         [string]$TranscriptPath = "",
         [bool]$NeedsTranscription = $false,
-        [string]$Status = "transcribed"
+        [string]$Status = "transcribed",
+        [string]$TranscriptUnavailableReason = ""
     )
 
     $date = ConvertTo-NoteDate -Value $SourceDate
@@ -218,6 +219,7 @@ function New-FeishuSourceNote {
     $escapedTranscriptPath = $TranscriptPath.Replace('"', '\"')
     $escapedFeishuId = $FeishuId.Replace('"', '\"')
     $escapedUpdatedAt = $UpdatedAt.Replace('"', '\"')
+    $escapedTranscriptUnavailableReason = $TranscriptUnavailableReason.Replace('"', '\"')
     $needs = $NeedsTranscription.ToString().ToLowerInvariant()
     $captured = Get-Date -Format "yyyy-MM-dd"
 
@@ -238,6 +240,7 @@ related_topics: []
 feishu_id: "$escapedFeishuId"
 feishu_updated_at: "$escapedUpdatedAt"
 needs_transcription: $needs
+transcript_unavailable_reason: "$escapedTranscriptUnavailableReason"
 ---
 
 # $Title

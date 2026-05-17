@@ -46,11 +46,11 @@ lark-cli.cmd drive +export --as user --token <docx-token> --doc-type docx --file
 
 Selection priority:
 
-1. DOCX title containing `文字记录`
-2. DOCX title containing `智能纪要`
-3. Most recently updated matching DOCX
+1. DOCX title containing `文字记录`: imported as `Feishu Transcript`, `status: transcribed`, `needs_transcription: false`
+2. DOCX title containing `智能纪要`: imported as `Feishu Summary`, `status: summarized`, `needs_transcription: true`, `transcript_unavailable_reason: "no_text_record_docx_found"`
+3. Other matching DOCX: treated as `unknown_doc` and not imported as a transcript
 
-The exported Markdown is saved under `10_Sources/Attachments/Feishu/Exports/` and copied into the Obsidian source note as `Feishu Transcript` or `Feishu Summary`.
+The exported Markdown is saved under `10_Sources/Attachments/Feishu/Exports/`. `文字记录` and `智能纪要` are separate document classes: a summary-only import never writes a `Feishu Transcript` section.
 
 The Feishu app/user must approve these read scopes when prompted:
 
@@ -84,10 +84,10 @@ The script uses read-only commands:
 
 ```powershell
 lark-cli.cmd minutes +search --as user --start <date> --end <date> --page-size 30 --format json
-lark-cli.cmd minutes minutes get --as user --params '{"minute_token":"...","user_id_type":"open_id"}' --format json
+lark-cli.cmd api GET /open-apis/minutes/v1/minutes/<minute-token> --as user --format json
 ```
 
-Untranscribed minutes are skipped by default. To create placeholder notes for them:
+Minutes without `文字记录` or `智能纪要` are skipped by default. To create placeholder notes for them:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7 -CreatePlaceholderForUntranscribed
