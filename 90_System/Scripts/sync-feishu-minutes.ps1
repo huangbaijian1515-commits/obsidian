@@ -18,13 +18,6 @@ $statePath = Join-Path $vaultRoot "90_System\State\feishu-sync-state.json"
 $logRoot = Join-Path $vaultRoot "90_System\Logs"
 New-Item -ItemType Directory -Force -Path $logRoot | Out-Null
 
-trap {
-    $errorLogPath = Join-Path $logRoot "feishu-sync-error-$(Get-Date -Format 'yyyy-MM-dd-HHmmss').log"
-    ($_ | Out-String) | Set-Content -LiteralPath $errorLogPath -Encoding UTF8
-    Write-Error "Feishu sync failed. Error log: $errorLogPath"
-    exit 1
-}
-
 $forbidden = @("edit", "update", "delete", "remove", "upload", "move", "comment", "write", "patch", "put")
 
 function Read-State {
@@ -75,6 +68,88 @@ function Test-ReadOnlyCommand {
     }
 }
 
+function Read-JsonFile {
+    param([string]$Path)
+
+    $text = Get-Content -LiteralPath $Path -Encoding UTF8 -Raw
+    if ([string]::IsNullOrWhiteSpace($text)) {
+        throw "JSON file is empty: $Path"
+    }
+    $json = $text | ConvertFrom-Json
+    if ($null -ne $json.ok -and $json.ok -eq $false) {
+        $message = Get-PropertyValue -Object $json.error -Names @("message", "type", "hint")
+        $hint = Get-PropertyValue -Object $json.error -Names @("hint")
+        throw "Feishu API returned ok:false. $message $hint"
+    }
+    return $json
+}
+
+function Join-CommandArguments {
+    param([string[]]$CliArgs)
+
+    $quoted = @()
+    foreach ($arg in $CliArgs) {
+        if ($arg -match '[\s"]') {
+            $quoted += '"' + ($arg -replace '"', '\"') + '"'
+        } else {
+            $quoted += $arg
+        }
+    }
+    return ($quoted -join " ")
+}
+
+function Invoke-ReadOnlyCliJson {
+    param(
+        [string]$Executable,
+        [string[]]$CliArgs
+    )
+
+    Test-ReadOnlyCommand -Parts (@($Executable) + $CliArgs)
+
+    $command = Get-Command $Executable -ErrorAction SilentlyContinue
+    if (-not $command) {
+        throw "$Executable is not installed. Run 90_System/Scripts/feishu-probe.ps1 for setup hints."
+    }
+
+    $commandLine = "$Executable $(Join-CommandArguments -CliArgs $CliArgs)"
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = "cmd.exe"
+    $psi.Arguments = "/d /c $commandLine"
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.UseShellExecute = $false
+    $psi.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+    $psi.StandardErrorEncoding = [System.Text.Encoding]::UTF8
+
+    $process = [System.Diagnostics.Process]::Start($psi)
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+
+    if ($process.ExitCode -ne 0) {
+        throw "Feishu CLI command failed: $stderr $stdout"
+    }
+    if ([string]::IsNullOrWhiteSpace($stdout)) {
+        throw "Feishu CLI returned empty JSON output. $stderr"
+    }
+
+    try {
+        $json = $stdout | ConvertFrom-Json
+    } catch {
+        $preview = $stdout
+        if ($preview.Length -gt 500) {
+            $preview = $preview.Substring(0, 500)
+        }
+        throw "Failed to parse Feishu CLI JSON. Command: $commandLine. Output preview: $preview"
+    }
+    if ($null -ne $json.ok -and $json.ok -eq $false) {
+        $message = Get-PropertyValue -Object $json.error -Names @("message", "type", "hint")
+        $hint = Get-PropertyValue -Object $json.error -Names @("hint")
+        throw "Feishu API returned ok:false. $message $hint"
+    }
+    return $json
+}
+
 function Invoke-ConfiguredListCommand {
     param([string]$Path)
 
@@ -96,11 +171,7 @@ function Invoke-ConfiguredListCommand {
         throw "$exe is not installed. Run 90_System/Scripts/feishu-probe.ps1 for setup hints."
     }
 
-    $output = & $exe @args
-    if ($LASTEXITCODE -ne 0) {
-        throw "Feishu list command failed."
-    }
-    return ($output -join "`n")
+    return Invoke-ReadOnlyCliJson -Executable $exe -CliArgs $args
 }
 
 function Invoke-FeishuMinutesSearch {
@@ -117,11 +188,7 @@ function Invoke-FeishuMinutesSearch {
     $args = @("minutes", "+search", "--as", "user", "--start", $start, "--end", $end, "--page-size", "30", "--format", "json")
     Test-ReadOnlyCommand -Parts (@($exe) + $args)
 
-    $output = & $exe @args
-    if ($LASTEXITCODE -ne 0) {
-        throw "Feishu minutes search failed."
-    }
-    return ($output -join "`n")
+    return Invoke-ReadOnlyCliJson -Executable $exe -CliArgs $args
 }
 
 function Invoke-FeishuMinuteGet {
@@ -137,20 +204,18 @@ function Invoke-FeishuMinuteGet {
         throw "$exe is not installed. Run 90_System/Scripts/feishu-probe.ps1 for setup hints."
     }
 
-    $params = @{ minute_token = $MinuteToken; user_id_type = "open_id" } | ConvertTo-Json -Compress
-    $args = @("minutes", "minutes", "get", "--as", "user", "--params", $params, "--format", "json")
+    $paramsPath = Join-Path $env:TEMP "obsidian-feishu-get-$([guid]::NewGuid().ToString()).json"
+    @{ minute_token = $MinuteToken; user_id_type = "open_id" } | ConvertTo-Json -Compress | Set-Content -LiteralPath $paramsPath -Encoding UTF8
+    $args = @("minutes", "minutes", "get", "--as", "user", "--params", "@$paramsPath", "--format", "json")
     Test-ReadOnlyCommand -Parts (@($exe) + $args)
-
-    $output = & $exe @args
-    if ($LASTEXITCODE -ne 0) {
+    try {
+        return Invoke-ReadOnlyCliJson -Executable $exe -CliArgs $args
+    } catch {
         Write-Host "Warning: Feishu minute detail fetch failed for $MinuteToken"
         return $null
+    } finally {
+        Remove-Item -LiteralPath $paramsPath -ErrorAction SilentlyContinue
     }
-    $text = $output -join "`n"
-    if ([string]::IsNullOrWhiteSpace($text)) {
-        return $null
-    }
-    return ($text | ConvertFrom-Json)
 }
 
 function ConvertTo-Array {
@@ -169,6 +234,29 @@ function ConvertTo-Array {
         return @($Data.minutes)
     }
     return @($Data)
+}
+
+function Normalize-Record {
+    param([object]$Record)
+
+    if ($null -ne $Record.meta_data) {
+        if ($null -ne $Record.meta_data.app_link -and $null -eq $Record.PSObject.Properties["url"]) {
+            $Record | Add-Member -NotePropertyName "url" -NotePropertyValue $Record.meta_data.app_link
+        }
+        if ($null -ne $Record.meta_data.description -and $null -eq $Record.PSObject.Properties["summary"]) {
+            $Record | Add-Member -NotePropertyName "summary" -NotePropertyValue $Record.meta_data.description
+        }
+    }
+
+    if ($null -ne $Record.display_info -and $null -eq $Record.PSObject.Properties["title"]) {
+        $display = "$($Record.display_info)"
+        $title = ($display -split "\r?\n" | Select-Object -First 1)
+        if (-not [string]::IsNullOrWhiteSpace($title)) {
+            $Record | Add-Member -NotePropertyName "title" -NotePropertyValue $title
+        }
+    }
+
+    return $Record
 }
 
 function Add-OrUpdateItem {
@@ -197,6 +285,8 @@ function Merge-RecordWithDetail {
     $minute = $Detail
     if ($null -ne $Detail.minute) {
         $minute = $Detail.minute
+    } elseif ($null -ne $Detail.data.minute) {
+        $minute = $Detail.data.minute
     }
 
     foreach ($property in $minute.PSObject.Properties) {
@@ -213,14 +303,13 @@ function Merge-RecordWithDetail {
 $state = Read-State -Path $statePath
 $jsonText = ""
 if (-not [string]::IsNullOrWhiteSpace($InputJson)) {
-    $jsonText = Get-Content -LiteralPath $InputJson -Raw
+    $data = Read-JsonFile -Path $InputJson
 } elseif (Test-Path -LiteralPath (Join-Path $vaultRoot $ConfigFile)) {
-    $jsonText = Invoke-ConfiguredListCommand -Path (Join-Path $vaultRoot $ConfigFile)
+    $data = Invoke-ConfiguredListCommand -Path (Join-Path $vaultRoot $ConfigFile)
 } else {
-    $jsonText = Invoke-FeishuMinutesSearch -DaysBack $DaysBack
+    $data = Invoke-FeishuMinutesSearch -DaysBack $DaysBack
 }
 
-$data = $jsonText | ConvertFrom-Json
 $records = ConvertTo-Array -Data $data
 $cutoff = (Get-Date).AddDays(-1 * $DaysBack)
 $created = 0
@@ -229,6 +318,7 @@ $placeholders = 0
 $untranscribed = 0
 
 foreach ($record in $records) {
+    $record = Normalize-Record -Record $record
     $id = Get-PropertyValue -Object $record -Names @("id", "token", "minute_token", "meeting_id", "object_token")
     if ([string]::IsNullOrWhiteSpace($id)) {
         $id = [guid]::NewGuid().ToString()
