@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.2 - 2026-05-18
+
+- Added paginated Feishu Minutes search with `--page-token` so longer date windows can import more than one page of results.
+- Required related DOCX titles to match the current minute title before importing them, preventing broad Drive search results from attaching another meeting's transcript.
+- Kept the sync read-only and preserved the existing `DaysBack`, dry-run, transcript, summary, and placeholder behavior.
+
 ## v2.1.1 - 2026-05-18
 
 - Fixed Feishu Minutes DOCX selection so only documents titled `文字记录` are imported as `Feishu Transcript`.
@@ -7,4 +13,3 @@
 - Added `transcript_unavailable_reason` for summary-only or placeholder Feishu source notes.
 - Fixed Windows PowerShell encoding and argument-passing issues that could prevent Chinese `drive +search` queries from finding the correct DOCX.
 - Kept the Feishu sync read-only: no Feishu uploads, edits, recording downloads, or local transcription are run in this stage.
-

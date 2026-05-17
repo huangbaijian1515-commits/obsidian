@@ -209,10 +209,56 @@ function Invoke-FeishuMinutesSearch {
 
     $start = (Get-Date).AddDays(-1 * $DaysBack).ToString("yyyy-MM-dd")
     $end = (Get-Date).ToString("yyyy-MM-dd")
-    $args = @("minutes", "+search", "--as", "user", "--start", $start, "--end", $end, "--page-size", "30", "--format", "json")
-    Test-ReadOnlyCommand -Parts (@($exe) + $args)
+    $pageToken = ""
+    $seenTokens = @{}
+    $items = @()
+    $pageCount = 0
 
-    return Invoke-ReadOnlyCliJson -Executable $exe -CliArgs $args
+    while ($true) {
+        $args = @("minutes", "+search", "--as", "user", "--start", $start, "--end", $end, "--page-size", "30", "--format", "json")
+        if (-not [string]::IsNullOrWhiteSpace($pageToken)) {
+            $args += @("--page-token", $pageToken)
+        }
+        Test-ReadOnlyCommand -Parts (@($exe) + $args)
+
+        $page = Invoke-ReadOnlyCliJson -Executable $exe -CliArgs $args
+        $pageCount++
+        if ($null -ne $page.data.items) {
+            $items += @($page.data.items)
+        } elseif ($null -ne $page.items) {
+            $items += @($page.items)
+        }
+
+        $hasMore = $false
+        if ($null -ne $page.data.has_more) {
+            $hasMore = [bool]$page.data.has_more
+        } elseif ($null -ne $page.has_more) {
+            $hasMore = [bool]$page.has_more
+        }
+
+        $nextToken = Get-PropertyValue -Object $page.data -Names @("page_token")
+        if ([string]::IsNullOrWhiteSpace($nextToken)) {
+            $nextToken = Get-PropertyValue -Object $page -Names @("page_token")
+        }
+
+        if (-not $hasMore -or [string]::IsNullOrWhiteSpace($nextToken)) {
+            break
+        }
+        if ($seenTokens.ContainsKey($nextToken)) {
+            throw "Feishu minutes pagination returned a repeated page token after $pageCount pages."
+        }
+        $seenTokens[$nextToken] = $true
+        $pageToken = $nextToken
+    }
+
+    return [pscustomobject]@{
+        ok = $true
+        data = [pscustomobject]@{
+            items = $items
+            page_count = $pageCount
+            total = $items.Count
+        }
+    }
 }
 
 function Invoke-FeishuMinuteGet {
@@ -338,9 +384,20 @@ function Get-PlainTitle {
     return ($decoded -replace "<[^>]+>", "").Trim()
 }
 
+function Normalize-MatchText {
+    param([string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return ""
+    }
+    $plain = Get-PlainTitle -Text $Text
+    return ($plain.ToLowerInvariant() -replace "[^\p{L}\p{Nd}]+", "")
+}
+
 function Select-FeishuMinuteDoc {
     param(
         [object[]]$Docs,
+        [string]$MinuteTitle,
         [string]$UpdatedAt
     )
 
@@ -348,7 +405,17 @@ function Select-FeishuMinuteDoc {
         return $null
     }
 
-    $transcriptDocs = @($Docs | Where-Object { (Get-PlainTitle -Text "$($_.title_highlighted)") -like ("*{0}*" -f $textRecordLabel) })
+    $normalizedMinuteTitle = Normalize-MatchText -Text $MinuteTitle
+    $matchingDocs = @($Docs | Where-Object {
+        $normalizedDocTitle = Normalize-MatchText -Text "$($_.title_highlighted)"
+        -not [string]::IsNullOrWhiteSpace($normalizedMinuteTitle) -and $normalizedDocTitle.Contains($normalizedMinuteTitle)
+    })
+
+    if ($matchingDocs.Count -eq 0) {
+        return $null
+    }
+
+    $transcriptDocs = @($matchingDocs | Where-Object { (Get-PlainTitle -Text "$($_.title_highlighted)") -like ("*{0}*" -f $textRecordLabel) })
     if ($transcriptDocs.Count -gt 0) {
         $doc = @($transcriptDocs | Sort-Object @{ Expression = { [int64]($_.result_meta.update_time) }; Descending = $true } | Select-Object -First 1)[0]
         return [pscustomobject]@{
@@ -359,7 +426,7 @@ function Select-FeishuMinuteDoc {
         }
     }
 
-    $summaryDocs = @($Docs | Where-Object { (Get-PlainTitle -Text "$($_.title_highlighted)") -like ("*{0}*" -f $smartSummaryLabel) })
+    $summaryDocs = @($matchingDocs | Where-Object { (Get-PlainTitle -Text "$($_.title_highlighted)") -like ("*{0}*" -f $smartSummaryLabel) })
     if ($summaryDocs.Count -gt 0) {
         $doc = @($summaryDocs | Sort-Object @{ Expression = { [int64]($_.result_meta.update_time) }; Descending = $true } | Select-Object -First 1)[0]
         return [pscustomobject]@{
@@ -370,7 +437,7 @@ function Select-FeishuMinuteDoc {
         }
     }
 
-    $fallback = @($Docs)[0]
+    $fallback = @($matchingDocs)[0]
     return [pscustomobject]@{
         token = "$($fallback.result_meta.token)"
         title = (Get-PlainTitle -Text "$($fallback.title_highlighted)")
@@ -543,7 +610,7 @@ foreach ($record in $records) {
         $bodyParts += "$transcript"
     } else {
         $docs = Search-FeishuMinuteDocs -Query $title
-        $selectedDoc = Select-FeishuMinuteDoc -Docs $docs -UpdatedAt "$updatedAt"
+        $selectedDoc = Select-FeishuMinuteDoc -Docs $docs -MinuteTitle $title -UpdatedAt "$updatedAt"
         if ($null -ne $selectedDoc) {
             $selectedDocToken = $selectedDoc.token
             $selectedDocTitle = $selectedDoc.title
