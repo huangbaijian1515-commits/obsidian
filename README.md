@@ -27,6 +27,12 @@ powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\import-youtube.ps1 
 
 # Feishu minutes export from a local txt/md file
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\import-feishu-export.ps1 -InputFile "G:\path\to\meeting-export.txt" -Title "Meeting title"
+
+# Feishu CLI readiness probe
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\feishu-probe.ps1
+
+# Feishu minutes sync from a JSON export or configured read-only CLI command
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -InputJson "G:\path\to\feishu-minutes.json" -DaysBack 7
 ```
 
 ## Weekly Compile
@@ -70,3 +76,4 @@ The script writes a timestamped report to `50_Lint/`.
 - `privacy: sensitive` and `privacy: work` content should stay local unless explicitly approved.
 - NotebookLM and other cloud tools are for public or non-sensitive sources only.
 - Private GitHub is acceptable for the vault content you choose to sync, but sensitive company material should use a separate local-only or company-approved vault.
+- Feishu sync is read-only by policy. It may read and download allowed meeting/minutes material, but it must not edit Feishu documents.

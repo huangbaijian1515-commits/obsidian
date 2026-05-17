@@ -120,3 +120,35 @@ Use the generated draft as a working surface with Codex:
 2. Review the candidates manually.
 3. Promote approved items into `20_Query/`.
 4. Re-run lint after promotion.
+
+## V2.1 Feishu CLI Sync
+
+The Feishu sync layer is read-only. Scripts may read metadata, transcripts, summaries, action items, and recording files that your account is allowed to access. They must not edit, delete, move, comment on, upload to, or otherwise modify Feishu content.
+
+Probe local readiness:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\feishu-probe.ps1
+```
+
+If `lark-cli` is missing or not logged in, install/authenticate it separately and run:
+
+```powershell
+lark-cli auth login --recommend
+```
+
+Sync from a local JSON export:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -InputJson "G:\path\to\feishu-minutes.json" -DaysBack 7
+```
+
+After `feishu-probe.ps1` confirms the exact read-only CLI command for your tenant, copy `90_System/Config/feishu-sync.example.json` to `90_System/Config/feishu-sync.json` and update only the list/export command. Do not add edit, update, delete, upload, move, comment, write, patch, post, or put commands.
+
+Install daily sync at 23:30:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\install-feishu-daily-task.ps1
+```
+
+Feishu notes are named `YYYY-MM-DD_原妙记命名.md`. Imported notes default to `privacy: work` and are not auto-committed or auto-pushed to GitHub.

@@ -1,0 +1,11 @@
+{
+  "readOnly": true,
+  "minutesListCommand": {
+    "executable": "lark-cli",
+    "args": ["minutes", "list", "--format", "json"]
+  },
+  "notes": [
+    "This is a conservative placeholder. Run feishu-probe.ps1 first and adjust the command only to a read-only list/export command supported by your tenant.",
+    "Do not put edit, update, delete, upload, move, comment, or write commands in this file."
+  ]
+}

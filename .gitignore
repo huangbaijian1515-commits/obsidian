@@ -5,3 +5,6 @@
 Thumbs.db
 *.tmp
 *.bak
+90_System/Logs/*.log
+90_System/Logs/*.json
+90_System/State/feishu-sync-state.json

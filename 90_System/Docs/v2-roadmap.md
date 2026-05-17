@@ -12,10 +12,18 @@ V2 focuses on local-first semi-automation. The vault should become easier to fee
 ## Next V2.x Candidates
 
 - Install and integrate `yt-dlp` subtitle download.
-- Add a Feishu Open Platform sync script after credentials and permissions are confirmed.
+- Confirm the exact read-only `lark-cli` command for Feishu Minutes in this tenant and wire it into `90_System/Config/feishu-sync.json`.
 - Add an Android-friendly capture file format such as `00_Inbox/mobile-capture.md`.
 - Add query promotion automation that creates draft notes from approved extraction items.
 - Add duplicate and backlink suggestion reports.
+
+## Implemented In V2.1
+
+- Read-only Feishu readiness probe.
+- Feishu minutes sync state and duplicate prevention.
+- Feishu source note naming as `YYYY-MM-DD_原妙记命名.md`.
+- Local `faster-whisper` transcription hook for downloaded media.
+- Windows daily task installer for 23:30 sync.
 
 ## Privacy Rule
 
