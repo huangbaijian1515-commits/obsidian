@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.4 - 2026-05-18
+
+- Added local content-based classification for Feishu source notes with `content_kind`, `content_kind_confidence`, and `content_kind_reason`.
+- Updated Feishu sync dry-run and state output to include content classification.
+- Added a history backfill script for classifying existing Feishu source notes without using cloud AI.
+
 ## v2.1.3 - 2026-05-18
 
 - Added Feishu API throttling with `RequestDelayMs`, rate-limit detection, and exponential backoff retries for `9499 too many request` errors.

@@ -659,6 +659,10 @@ foreach ($record in $records) {
     $selectedDocSection = "Feishu Transcript"
     $selectedDocKind = ""
     $transcriptUnavailableReason = ""
+    $classificationContent = ""
+    $contentKind = "unknown"
+    $contentKindConfidence = "low"
+    $contentKindReason = "not_classified"
 
     $bodyParts = @()
     if (-not [string]::IsNullOrWhiteSpace($summary)) {
@@ -680,6 +684,7 @@ foreach ($record in $records) {
         $bodyParts += "## Feishu Transcript"
         $bodyParts += ""
         $bodyParts += "$transcript"
+        $classificationContent = "$transcript"
     } else {
         $docs = Search-FeishuMinuteDocs -Query $title
         $selectedDoc = Select-FeishuMinuteDoc -Docs $docs -MinuteTitle $title -UpdatedAt "$updatedAt"
@@ -712,6 +717,11 @@ foreach ($record in $records) {
             $bodyParts += ""
             $bodyParts += $export.content
         }
+        if (-not [string]::IsNullOrWhiteSpace($export.content)) {
+            $classificationContent = $export.content
+        } elseif (-not [string]::IsNullOrWhiteSpace($summary)) {
+            $classificationContent = "$summary"
+        }
     } elseif (-not [string]::IsNullOrWhiteSpace($transcript)) {
         # Already handled above.
     } else {
@@ -726,6 +736,13 @@ foreach ($record in $records) {
     }
 
     $status = if ($selectedDocKind -eq "summary") { "summarized" } elseif ($needsTranscription) { "captured" } else { "transcribed" }
+    if ([string]::IsNullOrWhiteSpace($classificationContent)) {
+        $classificationContent = $bodyParts -join "`n"
+    }
+    $classification = Get-FeishuContentKind -Title $title -Content $classificationContent
+    $contentKind = $classification.kind
+    $contentKindConfidence = $classification.confidence
+    $contentKindReason = $classification.reason
     $body = $bodyParts -join "`n"
 
     if ($needsTranscription -and $selectedDocKind -ne "summary" -and -not $CreatePlaceholderForUntranscribed) {
@@ -738,23 +755,23 @@ foreach ($record in $records) {
         $safeTitle = ConvertTo-SafeFileName -Text $title
         if ($needsTranscription) {
             if ($selectedDocKind -eq "summary") {
-                Write-Host "[dry-run] Would import summarized minute: $noteDate`_$safeTitle ($id) via DOCX $selectedDocToken [$selectedDocSection] $selectedDocTitle; needs_transcription=true"
+                Write-Host "[dry-run] Would import summarized minute: $noteDate`_$safeTitle ($id) via DOCX $selectedDocToken [$selectedDocSection] $selectedDocTitle; needs_transcription=true content_kind=$contentKind confidence=$contentKindConfidence"
             } else {
-                Write-Host "[dry-run] Would create placeholder: $noteDate`_$safeTitle ($id)"
+                Write-Host "[dry-run] Would create placeholder: $noteDate`_$safeTitle ($id) content_kind=$contentKind confidence=$contentKindConfidence"
                 $placeholders++
             }
         } else {
             if (-not [string]::IsNullOrWhiteSpace($selectedDocToken)) {
-                Write-Host "[dry-run] Would import transcribed minute: $noteDate`_$safeTitle ($id) via DOCX $selectedDocToken [$selectedDocSection] $selectedDocTitle"
+                Write-Host "[dry-run] Would import transcribed minute: $noteDate`_$safeTitle ($id) via DOCX $selectedDocToken [$selectedDocSection] $selectedDocTitle content_kind=$contentKind confidence=$contentKindConfidence"
             } else {
-                Write-Host "[dry-run] Would import transcribed minute: $noteDate`_$safeTitle ($id)"
+                Write-Host "[dry-run] Would import transcribed minute: $noteDate`_$safeTitle ($id) content_kind=$contentKind confidence=$contentKindConfidence"
             }
         }
         $created++
         continue
     }
 
-    $notePath = New-FeishuSourceNote -VaultRoot $vaultRoot -Title $title -SourceDate $sourceDate -FeishuId $id -FeishuUrl $url -UpdatedAt "$updatedAt" -Body $body -TranscriptPath $transcriptPath -NeedsTranscription $needsTranscription -Status $status -TranscriptUnavailableReason $transcriptUnavailableReason
+    $notePath = New-FeishuSourceNote -VaultRoot $vaultRoot -Title $title -SourceDate $sourceDate -FeishuId $id -FeishuUrl $url -UpdatedAt "$updatedAt" -Body $body -TranscriptPath $transcriptPath -NeedsTranscription $needsTranscription -Status $status -TranscriptUnavailableReason $transcriptUnavailableReason -ContentKind $contentKind -ContentKindConfidence $contentKindConfidence -ContentKindReason $contentKindReason
 
     Add-OrUpdateItem -ItemsObject $state.items -Key $id -Value ([pscustomobject]@{
         title = $title
@@ -767,6 +784,9 @@ foreach ($record in $records) {
         docKind = $selectedDocKind
         transcriptPath = $transcriptPath
         transcriptUnavailableReason = $transcriptUnavailableReason
+        contentKind = $contentKind
+        contentKindConfidence = $contentKindConfidence
+        contentKindReason = $contentKindReason
     })
     $created++
     Save-State -State $state -Path $statePath

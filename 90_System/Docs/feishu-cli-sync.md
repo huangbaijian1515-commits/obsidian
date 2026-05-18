@@ -89,6 +89,23 @@ powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes
 
 The sync retries `9499 too many request` errors with exponential backoff and saves local state after each successful import, so interrupted full-history runs can be restarted safely.
 
+Imported Feishu source notes include local rule-based content classification:
+
+```yaml
+content_kind: interview|meeting|personal_recording|unknown
+content_kind_confidence: low|medium|high
+content_kind_reason: ""
+```
+
+The classifier reads transcript or summary content first and uses the title only as a low-confidence fallback.
+
+Backfill existing Feishu notes with:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\classify-feishu-source-notes.ps1 -DryRun
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\classify-feishu-source-notes.ps1
+```
+
 The script uses read-only commands:
 
 ```powershell
