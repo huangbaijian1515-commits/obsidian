@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.7 - 2026-05-18
+
+- Raised the weight of interview flow signals such as `自我介绍`.
+- Added `看机会` and `离职` as strong interview motivation signals.
+- Prevented generic business terms such as budget, strategy, metrics, plans, and risks from overriding strong interview evidence.
+
 ## v2.1.6 - 2026-05-18
 
 - Sanitized Feishu Drive search queries before looking up related DOCX files.

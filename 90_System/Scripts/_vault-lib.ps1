@@ -102,12 +102,23 @@ function Get-FeishuContentKind {
         if ($_ -eq "RPReplay") { $_ } else { ConvertFrom-Base64Utf8 $_ }
     }
 
-    $interviewHits = Measure-KeywordHits -Text $combined -Keywords $interviewKeywords
-    $meetingHits = Measure-KeywordHits -Text $combined -Keywords $meetingKeywords
-    $recordingHits = Measure-KeywordHits -Text $combined -Keywords $recordingKeywords
+    $interviewHits = @(Measure-KeywordHits -Text $combined -Keywords $interviewKeywords)
+    $meetingHits = @(Measure-KeywordHits -Text $combined -Keywords $meetingKeywords)
+    $recordingHits = @(Measure-KeywordHits -Text $combined -Keywords $recordingKeywords)
 
     $speakerTurns = ([regex]::Matches($contentText, "$(ConvertFrom-Base64Utf8 '6K+06K+d5Lq6')\s*\d+")).Count
     $strongInterviewSignals = 0
+    if ($contentText -match (ConvertFrom-Base64Utf8 "6Ieq5oiR5LuL57uN")) {
+        $interviewHits += (ConvertFrom-Base64Utf8 "6Ieq5oiR5LuL57uN")
+        $interviewHits += "interview_intro_signal"
+        $strongInterviewSignals += 2
+    }
+    $hasInterviewMotivationSignal = ($contentText -match (ConvertFrom-Base64Utf8 "55yL5py65Lya") -or $contentText -match (ConvertFrom-Base64Utf8 "56a76IGM"))
+    $hasInterviewContextSignal = ($combined -match (ConvertFrom-Base64Utf8 "6Z2i6K+V") -or $combined -match (ConvertFrom-Base64Utf8 "5YCZ6YCJ5Lq6") -or $combined -match (ConvertFrom-Base64Utf8 "566A5Y6G") -or $combined -match (ConvertFrom-Base64Utf8 "6Z2i6K+V5a6Y") -or $combined -match (ConvertFrom-Base64Utf8 "5bqU6IGY") -or $combined -match (ConvertFrom-Base64Utf8 "6Ieq5oiR5LuL57uN"))
+    if ($hasInterviewMotivationSignal -and $hasInterviewContextSignal) {
+        $interviewHits += "interview_motivation_pattern"
+        $strongInterviewSignals += 2
+    }
     if ($contentText -match (ConvertFrom-Base64Utf8 "5YWI6Ieq5oiR5LuL57uN") -or $contentText -match (ConvertFrom-Base64Utf8 "5LuL57uN5LiA5LiLLirnu4/ljoY=") -or $contentText -match (ConvertFrom-Base64Utf8 "5Li65LuA5LmILirpnaLor5U=")) {
         $interviewHits += "interview_dialogue_pattern"
         $strongInterviewSignals += 1
@@ -120,7 +131,7 @@ function Get-FeishuContentKind {
         $interviewHits += "career_background_pattern"
         $strongInterviewSignals += 1
     }
-    if ($speakerTurns -ge 8 -and ($contentText -match (ConvertFrom-Base64Utf8 "5pa55qGI") -or $contentText -match (ConvertFrom-Base64Utf8 "5pWw5o2u") -or $contentText -match (ConvertFrom-Base64Utf8 "6aKE566X") -or $contentText -match (ConvertFrom-Base64Utf8 "6aOO6Zmp"))) {
+    if ($strongInterviewSignals -eq 0 -and $speakerTurns -ge 8 -and ($contentText -match (ConvertFrom-Base64Utf8 "5pa55qGI") -or $contentText -match (ConvertFrom-Base64Utf8 "5pWw5o2u") -or $contentText -match (ConvertFrom-Base64Utf8 "6aKE566X") -or $contentText -match (ConvertFrom-Base64Utf8 "6aOO6Zmp"))) {
         $meetingHits += "business_discussion_pattern"
     }
 
