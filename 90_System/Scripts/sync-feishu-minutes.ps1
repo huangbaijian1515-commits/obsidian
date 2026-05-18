@@ -7,7 +7,15 @@ param(
 
     [switch]$CreatePlaceholderForUntranscribed,
 
-    [switch]$DryRun
+    [switch]$DryRun,
+
+    [int]$RequestDelayMs = 1200,
+
+    [int]$MaxRetries = 5,
+
+    [int]$RetryBaseSeconds = 30,
+
+    [bool]$ContinueOnItemError = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -23,6 +31,15 @@ $forbidden = @("edit", "update", "delete", "remove", "upload", "move", "comment"
 $textRecordLabel = -join @([char]0x6587, [char]0x5B57, [char]0x8BB0, [char]0x5F55)
 $smartSummaryLabel = -join @([char]0x667A, [char]0x80FD, [char]0x7EAA, [char]0x8981)
 $fullWidthColon = [char]0xFF1A
+$script:RequestLogEntries = New-Object System.Collections.Generic.List[string]
+
+function Write-RequestLog {
+    param([string]$Message)
+
+    $entry = "$(Get-Date -Format s) $Message"
+    $script:RequestLogEntries.Add($entry) | Out-Null
+    Write-Host $entry
+}
 
 function Read-State {
     param([string]$Path)
@@ -134,7 +151,26 @@ function Invoke-NativeCliText {
     if ($exitCode -ne 0) {
         throw "Feishu CLI command failed: $text"
     }
+    if ($RequestDelayMs -gt 0) {
+        Start-Sleep -Milliseconds $RequestDelayMs
+    }
     return $text
+}
+
+function Test-RateLimitError {
+    param([string]$Text)
+
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return $false
+    }
+    return ($Text -match "9499" -or $Text -match "too many request" -or $Text -match "rate limit")
+}
+
+function Get-RetryDelaySeconds {
+    param([int]$Attempt)
+
+    $delay = $RetryBaseSeconds * [math]::Pow(2, [Math]::Max(0, $Attempt - 1))
+    return [int][Math]::Min(300, $delay)
 }
 
 function Invoke-ReadOnlyCliJson {
@@ -151,27 +187,45 @@ function Invoke-ReadOnlyCliJson {
         throw "$Executable is not installed. Run 90_System/Scripts/feishu-probe.ps1 for setup hints."
     }
 
-    $commandLine = "$Executable $(Join-CommandArguments -CliArgs $CliArgs)"
-    $stdout = Invoke-NativeCliText -Executable $Executable -CliArgs $CliArgs
-    if ([string]::IsNullOrWhiteSpace($stdout)) {
-        throw "Feishu CLI returned empty JSON output."
-    }
+    for ($attempt = 0; $attempt -le $MaxRetries; $attempt++) {
+        $commandLine = "$Executable $(Join-CommandArguments -CliArgs $CliArgs)"
+        try {
+            Write-RequestLog -Message "feishu_cli attempt=$($attempt + 1) command=$commandLine"
+            $stdout = Invoke-NativeCliText -Executable $Executable -CliArgs $CliArgs
+            if ([string]::IsNullOrWhiteSpace($stdout)) {
+                throw "Feishu CLI returned empty JSON output."
+            }
 
-    try {
-        $json = $stdout | ConvertFrom-Json
-    } catch {
-        $preview = $stdout
-        if ($preview.Length -gt 500) {
-            $preview = $preview.Substring(0, 500)
+            try {
+                $json = $stdout | ConvertFrom-Json
+            } catch {
+                $preview = $stdout
+                if ($preview.Length -gt 500) {
+                    $preview = $preview.Substring(0, 500)
+                }
+                throw "Failed to parse Feishu CLI JSON. Command: $commandLine. Output preview: $preview"
+            }
+            if ($null -ne $json.ok -and $json.ok -eq $false) {
+                $message = Get-PropertyValue -Object $json.error -Names @("message", "type", "hint")
+                $hint = Get-PropertyValue -Object $json.error -Names @("hint")
+                $errorText = "Feishu API returned ok:false. $message $hint"
+                if (Test-RateLimitError -Text $errorText) {
+                    throw $errorText
+                }
+                throw $errorText
+            }
+            return $json
+        } catch {
+            $errorText = $_.Exception.Message
+            if ((Test-RateLimitError -Text $errorText) -and $attempt -lt $MaxRetries) {
+                $delaySeconds = Get-RetryDelaySeconds -Attempt ($attempt + 1)
+                Write-RequestLog -Message "rate_limited attempt=$($attempt + 1) wait_seconds=$delaySeconds command=$commandLine"
+                Start-Sleep -Seconds $delaySeconds
+                continue
+            }
+            throw
         }
-        throw "Failed to parse Feishu CLI JSON. Command: $commandLine. Output preview: $preview"
     }
-    if ($null -ne $json.ok -and $json.ok -eq $false) {
-        $message = Get-PropertyValue -Object $json.error -Names @("message", "type", "hint")
-        $hint = Get-PropertyValue -Object $json.error -Names @("hint")
-        throw "Feishu API returned ok:false. $message $hint"
-    }
-    return $json
 }
 
 function Invoke-ConfiguredListCommand {
@@ -315,7 +369,23 @@ function Export-FeishuMinuteMarkdown {
     $args = @("drive", "+export", "--as", "user", "--token", $DocToken, "--doc-type", "docx", "--file-extension", "markdown", "--file-name", $baseName, "--output-dir", $relativeOutputDir, "--overwrite")
     Test-ReadOnlyCommand -Parts (@($exe) + $args)
 
-    $stdout = Invoke-NativeCliText -Executable $exe -CliArgs $args
+    $commandLine = "$exe $(Join-CommandArguments -CliArgs $args)"
+    for ($attempt = 0; $attempt -le $MaxRetries; $attempt++) {
+        try {
+            Write-RequestLog -Message "feishu_cli attempt=$($attempt + 1) command=$commandLine"
+            $stdout = Invoke-NativeCliText -Executable $exe -CliArgs $args
+            break
+        } catch {
+            $errorText = $_.Exception.Message
+            if ((Test-RateLimitError -Text $errorText) -and $attempt -lt $MaxRetries) {
+                $delaySeconds = Get-RetryDelaySeconds -Attempt ($attempt + 1)
+                Write-RequestLog -Message "rate_limited attempt=$($attempt + 1) wait_seconds=$delaySeconds command=$commandLine"
+                Start-Sleep -Seconds $delaySeconds
+                continue
+            }
+            throw
+        }
+    }
 
     $markdown = Get-ChildItem -LiteralPath $outputDir -Recurse -File -Filter "*.md" | Select-Object -First 1
     if (-not $markdown) {
@@ -544,8 +614,10 @@ $created = 0
 $skipped = 0
 $placeholders = 0
 $untranscribed = 0
+$errors = 0
 
 foreach ($record in $records) {
+    try {
     $record = Normalize-Record -Record $record
     $id = Get-PropertyValue -Object $record -Names @("id", "token", "minute_token", "meeting_id", "object_token")
     if ([string]::IsNullOrWhiteSpace($id)) {
@@ -697,6 +769,25 @@ foreach ($record in $records) {
         transcriptUnavailableReason = $transcriptUnavailableReason
     })
     $created++
+    Save-State -State $state -Path $statePath
+    } catch {
+        $errors++
+        $errorId = ""
+        try {
+            $errorId = Get-PropertyValue -Object $record -Names @("id", "token", "minute_token", "meeting_id", "object_token")
+        } catch {
+            $errorId = "unknown"
+        }
+        if ([string]::IsNullOrWhiteSpace($errorId)) {
+            $errorId = "unknown"
+        }
+        $message = "item_error id=$errorId message=$($_.Exception.Message)"
+        Write-RequestLog -Message $message
+        if (-not $ContinueOnItemError) {
+            throw
+        }
+        continue
+    }
 }
 
 if (-not $DryRun) {
@@ -704,6 +795,7 @@ if (-not $DryRun) {
 }
 
 $logPath = Join-Path $logRoot "feishu-sync-$(Get-Date -Format 'yyyy-MM-dd-HHmmss').log"
-"created=$created skipped=$skipped placeholders=$placeholders untranscribed=$untranscribed dryRun=$DryRun" | Set-Content -LiteralPath $logPath -Encoding UTF8
-Write-Host "Feishu sync finished. created=$created skipped=$skipped placeholders=$placeholders untranscribed=$untranscribed dryRun=$DryRun"
+$summaryLine = "created=$created skipped=$skipped placeholders=$placeholders untranscribed=$untranscribed errors=$errors dryRun=$DryRun requestDelayMs=$RequestDelayMs maxRetries=$MaxRetries continueOnItemError=$ContinueOnItemError"
+@($summaryLine) + $script:RequestLogEntries | Set-Content -LiteralPath $logPath -Encoding UTF8
+Write-Host "Feishu sync finished. created=$created skipped=$skipped placeholders=$placeholders untranscribed=$untranscribed errors=$errors dryRun=$DryRun"
 Write-Host "Log: $logPath"

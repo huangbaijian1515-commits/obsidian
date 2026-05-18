@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.3 - 2026-05-18
+
+- Added Feishu API throttling with `RequestDelayMs`, rate-limit detection, and exponential backoff retries for `9499 too many request` errors.
+- Added per-item error continuation so one failing minute is logged without stopping the whole sync by default.
+- Saved sync state after each successful import so interrupted full-history runs can resume without duplicating completed notes.
+
 ## v2.1.2 - 2026-05-18
 
 - Added paginated Feishu Minutes search with `--page-token` so longer date windows can import more than one page of results.

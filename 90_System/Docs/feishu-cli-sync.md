@@ -80,6 +80,15 @@ Then run the sync:
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7
 ```
 
+For full-history syncs, use a larger window and add a slower request delay to avoid Feishu rate limits:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 3650 -DryRun -RequestDelayMs 1500
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 3650 -RequestDelayMs 1500
+```
+
+The sync retries `9499 too many request` errors with exponential backoff and saves local state after each successful import, so interrupted full-history runs can be restarted safely.
+
 The script uses read-only commands:
 
 ```powershell
