@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.6 - 2026-05-18
+
+- Sanitized Feishu Drive search queries before looking up related DOCX files.
+- Truncated Drive search queries to Feishu's 30-character limit to avoid `99992402 field validation failed`.
+- Decoded HTML entities and removed shell-sensitive ampersands from search text so long or encoded titles do not break `.cmd` invocation.
+
 ## v2.1.5 - 2026-05-18
 
 - Added explicit `StartDate` and `EndDate` support to Feishu Minutes sync.

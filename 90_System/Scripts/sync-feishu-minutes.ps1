@@ -426,7 +426,7 @@ function Search-FeishuMinuteDocs {
     }
 
     $exe = "lark-cli.cmd"
-    $queries = @("$textRecordLabel$fullWidthColon$Query", $Query, "$smartSummaryLabel$fullWidthColon$Query")
+    $queries = New-FeishuDriveSearchQueries -Text $Query
     $seen = @{}
     $items = @()
 
@@ -471,6 +471,50 @@ function Get-PlainTitle {
     }
     $decoded = [System.Net.WebUtility]::HtmlDecode($Text)
     return ($decoded -replace "<[^>]+>", "").Trim()
+}
+
+function ConvertTo-FeishuDriveSearchQuery {
+    param(
+        [string]$Prefix,
+        [string]$Text,
+        [int]$MaxLength = 30
+    )
+
+    $plain = Get-PlainTitle -Text $Text
+    $plain = ($plain -replace "[&]", " ")
+    $plain = ($plain -replace "\s+", " ").Trim()
+    if ([string]::IsNullOrWhiteSpace($plain)) {
+        return ""
+    }
+
+    $available = $MaxLength - $Prefix.Length
+    if ($available -lt 1) {
+        return ""
+    }
+    if ($plain.Length -gt $available) {
+        $plain = $plain.Substring(0, $available).Trim()
+    }
+    return "$Prefix$plain"
+}
+
+function New-FeishuDriveSearchQueries {
+    param([string]$Text)
+
+    $queries = @(
+        (ConvertTo-FeishuDriveSearchQuery -Prefix "$textRecordLabel$fullWidthColon" -Text $Text),
+        (ConvertTo-FeishuDriveSearchQuery -Prefix "" -Text $Text),
+        (ConvertTo-FeishuDriveSearchQuery -Prefix "$smartSummaryLabel$fullWidthColon" -Text $Text)
+    )
+
+    $seen = @{}
+    $result = @()
+    foreach ($query in $queries) {
+        if (-not [string]::IsNullOrWhiteSpace($query) -and -not $seen.ContainsKey($query)) {
+            $seen[$query] = $true
+            $result += $query
+        }
+    }
+    return @($result)
 }
 
 function Normalize-MatchText {
