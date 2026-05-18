@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.8 - 2026-05-19
+
+- Enhanced the Feishu daily scheduled task installer to include request throttling and print verification details after registration.
+- Added a read-only scheduled task checker that reports task status, last/next run times, result code, and today's Feishu sync logs.
+- Documented install, check, and dry-run commands for daily Feishu Minutes scanning.
+
 ## v2.1.7 - 2026-05-18
 
 - Raised the weight of interview flow signals such as `自我介绍`.

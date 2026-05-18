@@ -151,6 +151,14 @@ After the dry-run output looks right:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\install-feishu-daily-task.ps1
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\check-feishu-daily-task.ps1
 ```
 
-The task runs daily at 23:30 and writes logs to `90_System/Logs/`.
+The task runs daily at 23:30, scans the last 2 days with `RequestDelayMs 1500`, and writes logs to `90_System/Logs/`.
+The check script is read-only: it does not start the task or sync Feishu data.
+
+To manually verify read access without writing notes:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 2 -DryRun -RequestDelayMs 1500
+```

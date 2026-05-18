@@ -34,6 +34,10 @@ powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\feishu-probe.ps1
 # Feishu minutes sync from a JSON export or configured read-only CLI command
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7 -DryRun
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7
+
+# Install and check the daily Feishu minutes sync task
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\install-feishu-daily-task.ps1
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\check-feishu-daily-task.ps1
 ```
 
 For Feishu history imports, use date-windowed sync instead of one huge `DaysBack` query:
