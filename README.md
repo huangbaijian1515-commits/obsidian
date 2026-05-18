@@ -36,6 +36,13 @@ powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7
 ```
 
+For Feishu history imports, use date-windowed sync instead of one huge `DaysBack` query:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-history.ps1 -StartDate 2023-01-01 -EndDate 2026-05-18 -WindowDays 30 -DryRun -RequestDelayMs 1500
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-history.ps1 -StartDate 2023-01-01 -EndDate 2026-05-18 -WindowDays 30 -RequestDelayMs 1500
+```
+
 ## Weekly Compile
 
 1. Ask Codex to scan `00_Inbox/` and `10_Sources/`.

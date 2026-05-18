@@ -80,14 +80,21 @@ Then run the sync:
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7
 ```
 
-For full-history syncs, use a larger window and add a slower request delay to avoid Feishu rate limits:
+For a specific date range, prefer explicit window dates:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 3650 -DryRun -RequestDelayMs 1500
-powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 3650 -RequestDelayMs 1500
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -StartDate 2026-05-01 -EndDate 2026-05-18 -DryRun -RequestDelayMs 1500
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -StartDate 2026-05-01 -EndDate 2026-05-18 -RequestDelayMs 1500
 ```
 
-The sync retries `9499 too many request` errors with exponential backoff and saves local state after each successful import, so interrupted full-history runs can be restarted safely.
+For full-history syncs, do not use one huge `DaysBack` range. Feishu search can return an incomplete slice for very large windows even when pagination is enabled. Use the history wrapper, which splits the range into smaller windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-history.ps1 -StartDate 2023-01-01 -EndDate 2026-05-18 -WindowDays 30 -DryRun -RequestDelayMs 1500
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-history.ps1 -StartDate 2023-01-01 -EndDate 2026-05-18 -WindowDays 30 -RequestDelayMs 1500
+```
+
+The sync retries `9499 too many request` errors with exponential backoff and saves local state after each successful import, so interrupted history runs can be restarted safely.
 
 Imported Feishu source notes include local rule-based content classification:
 

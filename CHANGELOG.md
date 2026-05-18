@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.5 - 2026-05-18
+
+- Added explicit `StartDate` and `EndDate` support to Feishu Minutes sync.
+- Added `sync-feishu-history.ps1` for date-windowed history syncs, avoiding incomplete results from very large Feishu search windows.
+- Updated full-history guidance to use 30-day windows with existing rate limiting, retries, and per-item state saves.
+
 ## v2.1.4 - 2026-05-18
 
 - Added local content-based classification for Feishu source notes with `content_kind`, `content_kind_confidence`, and `content_kind_reason`.

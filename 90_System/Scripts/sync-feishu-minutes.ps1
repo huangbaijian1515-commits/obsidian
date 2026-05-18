@@ -1,6 +1,10 @@
 param(
     [int]$DaysBack = 1,
 
+    [string]$StartDate = "",
+
+    [string]$EndDate = "",
+
     [string]$InputJson = "",
 
     [string]$ConfigFile = ".\90_System\Config\feishu-sync.json",
@@ -253,7 +257,11 @@ function Invoke-ConfiguredListCommand {
 }
 
 function Invoke-FeishuMinutesSearch {
-    param([int]$DaysBack)
+    param(
+        [int]$DaysBack,
+        [string]$StartDate = "",
+        [string]$EndDate = ""
+    )
 
     $exe = "lark-cli.cmd"
     $command = Get-Command $exe -ErrorAction SilentlyContinue
@@ -261,8 +269,19 @@ function Invoke-FeishuMinutesSearch {
         throw "$exe is not installed. Run 90_System/Scripts/feishu-probe.ps1 for setup hints."
     }
 
-    $start = (Get-Date).AddDays(-1 * $DaysBack).ToString("yyyy-MM-dd")
-    $end = (Get-Date).ToString("yyyy-MM-dd")
+    if ([string]::IsNullOrWhiteSpace($StartDate)) {
+        $start = (Get-Date).AddDays(-1 * $DaysBack).ToString("yyyy-MM-dd")
+    } else {
+        $start = ([datetime]::Parse($StartDate)).ToString("yyyy-MM-dd")
+    }
+
+    if ([string]::IsNullOrWhiteSpace($EndDate)) {
+        $end = (Get-Date).ToString("yyyy-MM-dd")
+    } else {
+        $end = ([datetime]::Parse($EndDate)).ToString("yyyy-MM-dd")
+    }
+
+    Write-RequestLog -Message "minutes_search_window start=$start end=$end"
     $pageToken = ""
     $seenTokens = @{}
     $items = @()
@@ -605,11 +624,25 @@ if (-not [string]::IsNullOrWhiteSpace($InputJson)) {
 } elseif (Test-Path -LiteralPath (Join-Path $vaultRoot $ConfigFile)) {
     $data = Invoke-ConfiguredListCommand -Path (Join-Path $vaultRoot $ConfigFile)
 } else {
-    $data = Invoke-FeishuMinutesSearch -DaysBack $DaysBack
+    $data = Invoke-FeishuMinutesSearch -DaysBack $DaysBack -StartDate $StartDate -EndDate $EndDate
 }
 
 $records = ConvertTo-Array -Data $data
-$cutoff = (Get-Date).AddDays(-1 * $DaysBack)
+$useExplicitWindow = (-not [string]::IsNullOrWhiteSpace($StartDate)) -or (-not [string]::IsNullOrWhiteSpace($EndDate))
+if ($useExplicitWindow) {
+    if ([string]::IsNullOrWhiteSpace($StartDate)) {
+        $windowStart = [datetime]::MinValue
+    } else {
+        $windowStart = [datetime]::Parse($StartDate).Date
+    }
+    if ([string]::IsNullOrWhiteSpace($EndDate)) {
+        $windowEnd = (Get-Date).Date
+    } else {
+        $windowEnd = [datetime]::Parse($EndDate).Date
+    }
+} else {
+    $cutoff = (Get-Date).AddDays(-1 * $DaysBack)
+}
 $created = 0
 $skipped = 0
 $placeholders = 0
@@ -638,7 +671,11 @@ foreach ($record in $records) {
     $sourceDate = Get-PropertyValue -Object $record -Names @("date", "start_time", "created_at", "create_time", "meeting_start_time")
     $noteDate = ConvertTo-NoteDate -Value $sourceDate
     $noteDateTime = [datetime]::Parse($noteDate)
-    if ($DaysBack -gt 0 -and $noteDateTime -lt $cutoff.Date) {
+    if ($useExplicitWindow -and ($noteDateTime.Date -lt $windowStart -or $noteDateTime.Date -gt $windowEnd)) {
+        $skipped++
+        continue
+    }
+    if (-not $useExplicitWindow -and $DaysBack -gt 0 -and $noteDateTime -lt $cutoff.Date) {
         $skipped++
         continue
     }
@@ -815,7 +852,7 @@ if (-not $DryRun) {
 }
 
 $logPath = Join-Path $logRoot "feishu-sync-$(Get-Date -Format 'yyyy-MM-dd-HHmmss').log"
-$summaryLine = "created=$created skipped=$skipped placeholders=$placeholders untranscribed=$untranscribed errors=$errors dryRun=$DryRun requestDelayMs=$RequestDelayMs maxRetries=$MaxRetries continueOnItemError=$ContinueOnItemError"
+$summaryLine = "created=$created skipped=$skipped placeholders=$placeholders untranscribed=$untranscribed errors=$errors dryRun=$DryRun requestDelayMs=$RequestDelayMs maxRetries=$MaxRetries continueOnItemError=$ContinueOnItemError startDate=$StartDate endDate=$EndDate daysBack=$DaysBack"
 @($summaryLine) + $script:RequestLogEntries | Set-Content -LiteralPath $logPath -Encoding UTF8
 Write-Host "Feishu sync finished. created=$created skipped=$skipped placeholders=$placeholders untranscribed=$untranscribed errors=$errors dryRun=$DryRun"
 Write-Host "Log: $logPath"
