@@ -319,7 +319,8 @@ function New-FeishuSourceNote {
 
     $date = ConvertTo-NoteDate -Value $SourceDate
     $safeTitle = ConvertTo-SafeFileName -Text $Title
-    $sourceDir = Join-Path $VaultRoot "10_Sources"
+    $sourceDir = Join-Path $VaultRoot "10_Sources\Feishu-minutes"
+    New-Item -ItemType Directory -Force -Path $sourceDir | Out-Null
     $path = New-UniqueMarkdownPath -Directory $sourceDir -BaseName "$date`_$safeTitle"
 
     $escapedTitle = $Title.Replace('"', '\"')

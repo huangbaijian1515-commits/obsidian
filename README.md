@@ -40,6 +40,8 @@ powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\install-feishu-dail
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\check-feishu-daily-task.ps1
 ```
 
+Feishu Minutes source notes are stored in `10_Sources/Feishu-minutes/`.
+
 For Feishu history imports, use date-windowed sync instead of one huge `DaysBack` query:
 
 ```powershell

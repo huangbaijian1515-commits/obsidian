@@ -80,6 +80,8 @@ Then run the sync:
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-minutes.ps1 -DaysBack 7
 ```
 
+Imported Feishu Minutes source notes are written to `10_Sources/Feishu-minutes/`.
+
 For a specific date range, prefer explicit window dates:
 
 ```powershell

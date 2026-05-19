@@ -7,6 +7,7 @@ $ErrorActionPreference = "Stop"
 
 $vaultRoot = Get-VaultRoot
 $sourceRoot = Join-Path $vaultRoot "10_Sources"
+$feishuSourceRoot = Join-Path $sourceRoot "Feishu-minutes"
 
 function Set-FrontmatterField {
     param(
@@ -67,9 +68,14 @@ function Update-FeishuClassification {
     }
 }
 
-$notes = Get-ChildItem -LiteralPath $sourceRoot -File -Filter "*.md" | Where-Object {
-    $_.FullName -notmatch "\\Attachments\\"
+$notes = @()
+if (Test-Path -LiteralPath $feishuSourceRoot) {
+    $notes += @(Get-ChildItem -LiteralPath $feishuSourceRoot -File -Filter "*.md")
 }
+$notes += @(Get-ChildItem -LiteralPath $sourceRoot -File -Filter "*.md" | Where-Object {
+    $_.FullName -notmatch "\\Attachments\\" -and $_.FullName -notmatch "\\Feishu-minutes\\"
+})
+$notes = @($notes | Sort-Object FullName -Unique)
 
 $changedCount = 0
 $scannedCount = 0

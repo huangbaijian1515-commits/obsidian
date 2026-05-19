@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.1.9 - 2026-05-19
+
+- Changed new Feishu Minutes source note output to `10_Sources/Feishu-minutes`.
+- Updated Feishu classification backfill to scan the dedicated Feishu Minutes folder while remaining compatible with older root-level source notes.
+- Documented the dedicated Feishu Minutes storage location.
+
 ## v2.1.8 - 2026-05-19
 
 - Enhanced the Feishu daily scheduled task installer to include request throttling and print verification details after registration.
