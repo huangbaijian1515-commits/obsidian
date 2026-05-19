@@ -1,5 +1,13 @@
 # Changelog
 
+## v3.0.0 - 2026-05-20
+
+- Added a read-only Feishu IM scanner for the P2P conversation `黄佰健`.
+- Extracted `mp.weixin.qq.com` links from Feishu messages and stored a local queue in `90_System/Queue/Wechat/`.
+- Added optional Codex CLI invocation so the global `obsidian-wechat-save` skill can save articles into `10_Sources/Wechat/`.
+- Added daily Windows Task Scheduler install and check scripts for the 23:30 Feishu WeChat link sync.
+- Added state and log tracking for processed WeChat links without editing Feishu or auto-pushing to GitHub.
+
 ## v2.1.9 - 2026-05-19
 
 - Changed new Feishu Minutes source note output to `10_Sources/Feishu-minutes`.

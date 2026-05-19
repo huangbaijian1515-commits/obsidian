@@ -42,6 +42,19 @@ powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\check-feishu-daily-
 
 Feishu Minutes source notes are stored in `10_Sources/Feishu-minutes/`.
 
+Feishu WeChat link sync:
+
+```powershell
+# Dry-run the Feishu chat scanner for WeChat public-account links
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-wechat-links.ps1 -ContactName "黄佰健" -DaysBack 2 -DryRun
+
+# Install and check the daily 23:30 Feishu -> WeChat source-note task
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\install-feishu-wechat-daily-task.ps1
+powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\check-feishu-wechat-daily-task.ps1
+```
+
+WeChat public-account source notes are stored in `10_Sources/Wechat/`. The Feishu chat scanner uses read-only Feishu IM commands and asks Codex to apply the global `obsidian-wechat-save` skill when `-SaveWithCodex` is enabled.
+
 For Feishu history imports, use date-windowed sync instead of one huge `DaysBack` query:
 
 ```powershell
