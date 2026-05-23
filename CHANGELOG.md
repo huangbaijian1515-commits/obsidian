@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.0.1 - 2026-05-23
+
+- Fixed the Feishu WeChat scheduled task save step by resolving Codex CLI from the known desktop install path when Task Scheduler does not inherit the interactive PATH.
+- Fixed the non-interactive Codex invocation to use supported `codex exec` flags.
+- Kept failed article saves recoverable by preserving queued link files and marking state as `queued` instead of replacing them with unrecoverable `error` entries.
+- Changed the Windows scheduled task default to collection-only; Codex App automation is responsible for consuming queued links with the global `obsidian-wechat-save` skill.
+
 ## v3.0.0 - 2026-05-20
 
 - Added a read-only Feishu IM scanner for the P2P conversation `黄佰健`.

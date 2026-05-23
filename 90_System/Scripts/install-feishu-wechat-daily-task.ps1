@@ -4,7 +4,7 @@ param(
     [string]$ContactName = "",
     [int]$DaysBack = 2,
     [int]$RequestDelayMs = 1500,
-    [switch]$CollectOnly
+    [switch]$SaveWithCodex
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,7 +18,7 @@ $vaultRoot = Get-VaultRoot
 $scriptPath = Join-Path $vaultRoot "90_System\Scripts\sync-feishu-wechat-links.ps1"
 $powershell = (Get-Command powershell).Source
 $argument = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -ContactName `"$ContactName`" -DaysBack $DaysBack -RequestDelayMs $RequestDelayMs"
-if (-not $CollectOnly) {
+if ($SaveWithCodex) {
     $argument += " -SaveWithCodex"
 }
 
@@ -26,7 +26,7 @@ $action = New-ScheduledTaskAction -Execute $powershell -Argument $argument -Work
 $trigger = New-ScheduledTaskTrigger -Daily -At $Time
 $settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
 
-Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Description "Read Feishu chat links and save WeChat public-account articles into local Obsidian via Codex skill." -Force | Out-Null
+Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings -Description "Read-only Feishu chat link scan into local Obsidian queue." -Force | Out-Null
 $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
 $info = Get-ScheduledTaskInfo -TaskName $TaskName -ErrorAction Stop
 

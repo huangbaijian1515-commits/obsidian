@@ -405,9 +405,19 @@ function Invoke-CodexWechatSave {
         [string]$Url,
         [object]$Context
     )
+    $codexPath = ""
     $codex = Get-Command "codex" -ErrorAction SilentlyContinue
-    if (-not $codex) {
-        throw "codex CLI is not installed or not on PATH; queued link only."
+    if ($codex) {
+        $codexPath = $codex.Source
+    }
+    if ([string]::IsNullOrWhiteSpace($codexPath)) {
+        $localCodex = Join-Path $env:LOCALAPPDATA "OpenAI\Codex\bin\codex.exe"
+        if (Test-Path -LiteralPath $localCodex) {
+            $codexPath = $localCodex
+        }
+    }
+    if ([string]::IsNullOrWhiteSpace($codexPath)) {
+        throw "codex CLI is not installed or not discoverable; queued link only."
     }
     $prompt = @"
 Use the global obsidian-wechat-save skill.
@@ -423,7 +433,7 @@ Feishu source context:
 Do not edit Feishu. Write only under G:\AI project\obsidian\10_Sources\Wechat unless the skill requires metadata checks.
 "@
     Write-RequestLog -Message "codex_wechat_save url=$Url"
-    $output = & $codex.Source exec --cd $vaultRoot --sandbox danger-full-access --ask-for-approval never $prompt 2>&1
+    $output = & $codexPath exec --cd $vaultRoot --dangerously-bypass-approvals-and-sandbox $prompt 2>&1
     $exitCode = $LASTEXITCODE
     if ($exitCode -ne 0) {
         throw "Codex wechat save failed: $(($output | Out-String).Trim())"
@@ -493,10 +503,17 @@ foreach ($message in $messages) {
             $queuePath = New-QueueFile -Id $id -Url $url -Context $context
             $status = "queued"
             $notePath = ""
+            $saveError = ""
             if ($SaveWithCodex) {
-                Invoke-CodexWechatSave -Url $url -Context $context
-                $notePath = Find-WechatNoteForUrl -Url $url
-                $status = if ([string]::IsNullOrWhiteSpace($notePath)) { "queued_after_codex" } else { "saved" }
+                try {
+                    Invoke-CodexWechatSave -Url $url -Context $context
+                    $notePath = Find-WechatNoteForUrl -Url $url
+                    $status = if ([string]::IsNullOrWhiteSpace($notePath)) { "queued_after_codex" } else { "saved" }
+                } catch {
+                    $saveError = $_.Exception.Message
+                    $status = "queued"
+                    Write-RequestLog -Message "codex_save_error url=$url message=$saveError"
+                }
                 if ($status -eq "saved") {
                     $saved++
                 } else {
@@ -516,6 +533,7 @@ foreach ($message in $messages) {
                 messageTime = "$messageTime"
                 queuePath = $queuePath
                 notePath = $notePath
+                error = $saveError
             })
             Save-State -State $state -Path $statePath
         } catch {
