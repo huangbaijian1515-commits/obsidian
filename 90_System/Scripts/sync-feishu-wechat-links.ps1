@@ -323,6 +323,43 @@ function Get-WechatUrls {
     return @($urls | Select-Object -Unique)
 }
 
+function Invoke-DefuddleProperty {
+    param(
+        [string]$Url,
+        [string]$Property
+    )
+
+    $defuddle = Get-Command "defuddle" -ErrorAction SilentlyContinue
+    if (-not $defuddle) {
+        return ""
+    }
+
+    try {
+        $output = & $defuddle.Source parse $Url -p $Property 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            return ""
+        }
+        return (($output | Out-String).Trim())
+    } catch {
+        return ""
+    }
+}
+
+function Get-WechatArticleMetadata {
+    param([string]$Url)
+
+    $title = Invoke-DefuddleProperty -Url $Url -Property "title"
+    $author = Invoke-DefuddleProperty -Url $Url -Property "author"
+    if ([string]::IsNullOrWhiteSpace($title)) {
+        $title = "WeChat article pending extraction"
+    }
+
+    return [pscustomobject]@{
+        title = $title
+        author = $author
+    }
+}
+
 function Get-MessageItems {
     param([object]$Json)
     $objects = @(Find-ObjectsWithProperty -Root $Json -PropertyNames @("message_id", "messageId", "msg_id", "content"))
@@ -452,10 +489,20 @@ function New-WechatCapturedNote {
         return $existingPath
     }
 
+    $metadata = Get-WechatArticleMetadata -Url $Url
+    $title = "$($metadata.title)"
+    $author = "$($metadata.author)"
     $date = Get-Date -Format "yyyy-MM-dd"
     $shortId = if ($Id.Length -gt 8) { $Id.Substring(0, 8) } else { $Id }
-    $path = New-UniqueMarkdownPath -Directory $wechatRoot -BaseName "$date-WeChat-$shortId"
+    $safeTitle = ConvertTo-SafeFileName -Text $title
+    if ($safeTitle -eq "WeChat article pending extraction") {
+        $safeTitle = "WeChat-$shortId"
+    }
+    $path = New-UniqueMarkdownPath -Directory $wechatRoot -BaseName "$date-$safeTitle"
+    $quality = if ($title -eq "WeChat article pending extraction") { "unknown" } else { "medium" }
     $escapedUrl = $Url.Replace('"', '\"')
+    $escapedTitle = $title.Replace('"', '\"')
+    $escapedAuthor = $author.Replace('"', '\"')
     $escapedContactName = $ContactName.Replace('"', '\"')
     $escapedMessageId = $Context.messageId.Replace('"', '\"')
     $escapedMessageTime = $Context.messageTime.Replace('"', '\"')
@@ -463,20 +510,20 @@ function New-WechatCapturedNote {
 ---
 type: source
 source_type: wechat
-title: "WeChat article pending extraction"
-author: ""
+title: "$escapedTitle"
+author: "$escapedAuthor"
 url: "$escapedUrl"
 captured_at: "$date"
 published_at: ""
 status: captured
-quality: unknown
+quality: $quality
 privacy: public
 transcript_path: ""
 related_topics: []
 source_context: "Feishu chat $escapedContactName, message_id: $escapedMessageId, message_time: $escapedMessageTime"
 ---
 
-# WeChat article pending extraction
+# $title
 
 ## Source Snapshot
 
@@ -488,7 +535,7 @@ source_context: "Feishu chat $escapedContactName, message_id: $escapedMessageId,
 
 Original URL: $Url
 
-This source note was created automatically when the Feishu chat scanner found the WeChat URL. Article extraction has not completed yet. If automatic extraction is blocked by a WeChat environment verification page, open the URL manually and enrich this note later.
+This source note was created automatically when the Feishu chat scanner found the WeChat URL. Metadata extraction completed with title/author when available. Article digest extraction may still need a later enrichment pass.
 
 ## Extracted Units
 

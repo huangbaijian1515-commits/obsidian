@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.0.3 - 2026-05-28
+
+- Fixed WeChat captured notes that used unreadable placeholder titles by fetching article title and author with Defuddle before creating the source note.
+- Replaced the four affected placeholder notes with readable extracted notes using real titles, authors, URLs, Feishu context, and digest sections.
+
 ## v3.0.2 - 2026-05-28
 
 - Made the Feishu WeChat scanner create an Obsidian `status: captured` source note immediately for every discovered WeChat URL.
