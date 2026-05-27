@@ -45,6 +45,13 @@ function Write-RequestLog {
     Write-Host $entry
 }
 
+trap {
+    $fatalLogPath = Join-Path $logRoot "feishu-wechat-sync-error-$(Get-Date -Format 'yyyy-MM-dd-HHmmss').log"
+    @("fatal_error=$($_.Exception.Message)") + $script:RequestLogEntries | Set-Content -LiteralPath $fatalLogPath -Encoding UTF8
+    Write-Error "Feishu WeChat sync failed. Error log: $fatalLogPath"
+    exit 1
+}
+
 function Read-State {
     param([string]$Path)
     if (-not (Test-Path -LiteralPath $Path)) {
@@ -400,6 +407,120 @@ $($Context.messageText)
     return $path
 }
 
+function Set-QueueFileStatus {
+    param(
+        [string]$Path,
+        [string]$Status,
+        [string]$NotePath = "",
+        [string]$ErrorMessage = ""
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    $text = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    $text = $text -replace "(?m)^status:\s*.*$", "status: $Status"
+    if (-not [string]::IsNullOrWhiteSpace($NotePath)) {
+        $escapedNotePath = $NotePath.Replace("\", "\\").Replace('"', '\"')
+        if ($text -match "(?m)^note_path:") {
+            $text = $text -replace "(?m)^note_path:\s*.*$", "note_path: `"$escapedNotePath`""
+        } else {
+            $text = $text -replace "(?m)^source_system:\s*feishu_im$", "source_system: feishu_im`nnote_path: `"$escapedNotePath`""
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($ErrorMessage)) {
+        $escapedError = $ErrorMessage.Replace('"', '\"')
+        if ($text -match "(?m)^error:") {
+            $text = $text -replace "(?m)^error:\s*.*$", "error: `"$escapedError`""
+        } else {
+            $text = $text -replace "(?m)^---\s*$", "error: `"$escapedError`"`n---"
+        }
+    }
+    Set-Content -LiteralPath $Path -Value $text -Encoding UTF8
+}
+
+function New-WechatCapturedNote {
+    param(
+        [string]$Id,
+        [string]$Url,
+        [object]$Context
+    )
+
+    $existingPath = Find-WechatNoteForUrl -Url $Url
+    if (-not [string]::IsNullOrWhiteSpace($existingPath)) {
+        return $existingPath
+    }
+
+    $date = Get-Date -Format "yyyy-MM-dd"
+    $shortId = if ($Id.Length -gt 8) { $Id.Substring(0, 8) } else { $Id }
+    $path = New-UniqueMarkdownPath -Directory $wechatRoot -BaseName "$date-WeChat-$shortId"
+    $escapedUrl = $Url.Replace('"', '\"')
+    $escapedContactName = $ContactName.Replace('"', '\"')
+    $escapedMessageId = $Context.messageId.Replace('"', '\"')
+    $escapedMessageTime = $Context.messageTime.Replace('"', '\"')
+    $content = @"
+---
+type: source
+source_type: wechat
+title: "WeChat article pending extraction"
+author: ""
+url: "$escapedUrl"
+captured_at: "$date"
+published_at: ""
+status: captured
+quality: unknown
+privacy: public
+transcript_path: ""
+related_topics: []
+source_context: "Feishu chat $escapedContactName, message_id: $escapedMessageId, message_time: $escapedMessageTime"
+---
+
+# WeChat article pending extraction
+
+## Source Snapshot
+
+- Why this source matters:
+- Original context: Feishu chat $ContactName
+- Capture method: read-only Feishu CLI link sync
+
+## Full Text Or Transcript
+
+Original URL: $Url
+
+This source note was created automatically when the Feishu chat scanner found the WeChat URL. Article extraction has not completed yet. If automatic extraction is blocked by a WeChat environment verification page, open the URL manually and enrich this note later.
+
+## Extracted Units
+
+### Viewpoints
+
+- [ ]
+
+### Judgments
+
+- [ ]
+
+### Facts
+
+- [ ]
+
+### Data
+
+- [ ]
+
+## Processing Log
+
+- captured: $date
+- extracted_by:
+- reviewed_by:
+
+## Notes
+
+"@
+    Set-Content -LiteralPath $path -Value $content -Encoding UTF8
+    return $path
+}
+
 function Invoke-CodexWechatSave {
     param(
         [string]$Url,
@@ -501,8 +622,9 @@ foreach ($message in $messages) {
 
         try {
             $queuePath = New-QueueFile -Id $id -Url $url -Context $context
-            $status = "queued"
-            $notePath = ""
+            $notePath = New-WechatCapturedNote -Id $id -Url $url -Context $context
+            Set-QueueFileStatus -Path $queuePath -Status "captured" -NotePath $notePath
+            $status = "captured"
             $saveError = ""
             if ($SaveWithCodex) {
                 try {
@@ -511,7 +633,8 @@ foreach ($message in $messages) {
                     $status = if ([string]::IsNullOrWhiteSpace($notePath)) { "queued_after_codex" } else { "saved" }
                 } catch {
                     $saveError = $_.Exception.Message
-                    $status = "queued"
+                    $status = "captured"
+                    Set-QueueFileStatus -Path $queuePath -Status "captured" -NotePath $notePath -ErrorMessage $saveError
                     Write-RequestLog -Message "codex_save_error url=$url message=$saveError"
                 }
                 if ($status -eq "saved") {

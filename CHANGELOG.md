@@ -1,5 +1,12 @@
 # Changelog
 
+## v3.0.2 - 2026-05-28
+
+- Made the Feishu WeChat scanner create an Obsidian `status: captured` source note immediately for every discovered WeChat URL.
+- Added queue frontmatter updates with `note_path` so links are still visible in Obsidian even when WeChat article extraction is blocked.
+- Added fatal error logging before script exit so Task Scheduler failures produce diagnosable logs.
+- Documented the new guaranteed captured-note behavior for WeChat links.
+
 ## v3.0.1 - 2026-05-23
 
 - Fixed the Feishu WeChat scheduled task save step by resolving Codex CLI from the known desktop install path when Task Scheduler does not inherit the interactive PATH.

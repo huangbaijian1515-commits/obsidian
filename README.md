@@ -53,7 +53,7 @@ powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\install-feishu-wech
 powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\check-feishu-wechat-daily-task.ps1
 ```
 
-WeChat public-account source notes are stored in `10_Sources/Wechat/`. The Feishu chat scanner uses read-only Feishu IM commands and writes pending links to `90_System/Queue/Wechat/`; Codex App consumes that queue with the global `obsidian-wechat-save` skill.
+WeChat public-account source notes are stored in `10_Sources/Wechat/`. The Feishu chat scanner uses read-only Feishu IM commands, writes pending links to `90_System/Queue/Wechat/`, and immediately creates `status: captured` source notes; Codex App can later enrich those notes with the global `obsidian-wechat-save` skill.
 
 For Feishu history imports, use date-windowed sync instead of one huge `DaysBack` query:
 

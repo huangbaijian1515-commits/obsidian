@@ -7,6 +7,7 @@ Version 3.0 adds a read-only Feishu IM scanner for WeChat public-account links.
 - Reads the Feishu P2P conversation named `黄佰健`.
 - Extracts links whose host contains `mp.weixin.qq.com`.
 - Writes a local queue item under `90_System/Queue/Wechat/`.
+- Immediately creates a `status: captured` source note under `10_Sources/Wechat/` for every discovered link.
 - Leaves article saving to Codex App, which can use the global `obsidian-wechat-save` skill to save the article into `10_Sources/Wechat/`.
 - Records processed URLs in `90_System/State/feishu-wechat-sync-state.json`.
 
@@ -34,8 +35,8 @@ powershell -ExecutionPolicy Bypass -File .\90_System\Scripts\sync-feishu-wechat-
 
 This is not the recommended scheduled path. The reliable scheduled path is:
 
-1. Windows Task Scheduler collects links into `90_System/Queue/Wechat/`.
-2. Codex App automation consumes the queue and uses the global `obsidian-wechat-save` skill.
+1. Windows Task Scheduler collects links into `90_System/Queue/Wechat/` and creates captured source notes in `10_Sources/Wechat/`.
+2. Codex App automation enriches captured notes when WeChat article content can be fetched.
 
 ## Daily Task
 
